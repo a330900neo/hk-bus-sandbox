@@ -39,7 +39,6 @@
         
         .active-mode { background: #28a745 !important; color: white !important; border: 2px solid #1e7e34 !important; } 
         .danger-btn { background: #dc3545 !important; }
-        .warning-btn { background: #ffc107 !important; color: #000 !important; }
         .tab-btn { flex: 1; background: #e9ecef; color: #333; border: 1px solid #ccc; }
         .tab-btn:hover { background: #dee2e6; }
 
@@ -136,7 +135,11 @@
                     <button class="danger-btn" onclick="clearTrafficLights()">Clear Lights</button>
                 </div>
                 
-                <p style="font-size: 0.8em; color: #666; margin: 5px 0;">Tap stops on map to connect. Click Place Traffic Light to add stops.</p>
+                <div class="form-group" style="margin-bottom: 10px; display: flex; justify-content: space-between;">
+                    <p style="font-size: 0.8em; color: #666; margin: 0; flex: 1;">Tap stops to connect. Added paths load instantly.</p>
+                    <button onclick="forceRerouteRoute()" style="background:#ffc107; color:black; padding: 4px 8px; font-size: 0.8em;">🔄 Force Reroute</button>
+                </div>
+
                 <div id="current-route-stops" style="max-height: 100px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px;"></div>
                 
                 <div style="background: #e9ecef; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
@@ -153,8 +156,7 @@
                 </div>
                 
                 <div class="form-group">
-                    <button class="danger-btn" id="btn-clear-direction" title="Clear stops">Clear</button>
-                    <button class="warning-btn" id="btn-force-reroute" title="Dump cache & recalculate OSRM">🔄 Reroute</button>
+                    <button class="danger-btn" id="btn-clear-direction">Clear Line</button>
                     <button id="btn-done-editing" style="flex:1;">Done Editing</button>
                 </div>
             </div>
@@ -181,6 +183,7 @@
         let gameTimeInSeconds = d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds(); 
         let activeBuses = [];
         let lastRealTime = performance.now();
+        let osrmCache = {}; // NEW: Stores previously calculated route segments to save bandwidth & time
 
         function timeToSeconds(timeStr) {
             const parts = timeStr.split(':');
@@ -245,9 +248,10 @@
                         } else if (currNode.isTrafficLight) {
                             if (!this.justStoppedAtLight) {
                                 this.justStoppedAtLight = true;
-                                if (Math.random() < 0.85) { // 85% chance to hit a red light
+                                if (Math.random() < 0.85) { 
                                     this.state = 'STOPPED';
-                                    this.stopTimer = 5 + Math.random() * 65; // User changed redlight timer
+                                    // UPDATED TIMING: 5 + Random * 65
+                                    this.stopTimer = 5 + Math.random() * 65; 
                                     break;
                                 }
                             }
@@ -344,9 +348,9 @@
             else { panel.classList.remove('panel-collapsed'); arrow.innerText = '▼'; }
         }
 
-        // --- 5. Save/Load ---
+        // --- 5. Save/Load (NOW SAVES CACHE) ---
         function getGameStateJSON() {
-            const saveData = { stops: {}, routes: {} };
+            const saveData = { stops: {}, routes: {}, osrmCache: osrmCache };
             for (let id in globalStops) {
                 const s = globalStops[id];
                 saveData.stops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, type: s.type, mode: s.mode };
@@ -355,8 +359,8 @@
                 const r = routes[id];
                 saveData.routes[id] = {
                     group: r.group, color: r.color,
-                    outbound: { stopIds: [...r.outbound.stopIds], timetable: [...r.outbound.timetable], simPath: r.outbound.simPath, manualLights: r.outbound.manualLights, segmentsCache: r.outbound.segmentsCache },
-                    inbound: { stopIds: [...r.inbound.stopIds], timetable: [...r.inbound.timetable], simPath: r.inbound.simPath, manualLights: r.inbound.manualLights, segmentsCache: r.inbound.segmentsCache }
+                    outbound: { stopIds: [...r.outbound.stopIds], timetable: [...r.outbound.timetable], simPath: r.outbound.simPath, manualLights: r.outbound.manualLights },
+                    inbound: { stopIds: [...r.inbound.stopIds], timetable: [...r.inbound.timetable], simPath: r.inbound.simPath, manualLights: r.inbound.manualLights }
                 };
             }
             return JSON.stringify(saveData);
@@ -375,6 +379,7 @@
                 if(routes[id].inbound.polylineLayer) map.removeLayer(routes[id].inbound.polylineLayer);
             }
             globalStops = {}; routes = {};
+            osrmCache = saveData.osrmCache || {}; // Load cache
             
             let maxStopNum = 0;
             for (let id in saveData.stops) {
@@ -391,8 +396,8 @@
                 const r = saveData.routes[id];
                 routes[id] = {
                     group: r.group, color: r.color,
-                    outbound: { stopIds: r.outbound.stopIds, timetable: r.outbound.timetable || [], polylineLayer: null, simPath: r.outbound.simPath, manualLights: r.outbound.manualLights || [], segmentsCache: r.outbound.segmentsCache || {} },
-                    inbound: { stopIds: r.inbound.stopIds, timetable: r.inbound.timetable || [], polylineLayer: null, simPath: r.inbound.simPath, manualLights: r.inbound.manualLights || [], segmentsCache: r.inbound.segmentsCache || {} }
+                    outbound: { stopIds: r.outbound.stopIds, timetable: r.outbound.timetable || [], polylineLayer: null, simPath: r.outbound.simPath, manualLights: r.outbound.manualLights || [] },
+                    inbound: { stopIds: r.inbound.stopIds, timetable: r.inbound.timetable || [], polylineLayer: null, simPath: r.inbound.simPath, manualLights: r.inbound.manualLights || [] }
                 };
                 
                 if (routes[id].outbound.simPath) renderRouteLineFromSimPath(id, 'outbound');
@@ -507,7 +512,8 @@
                 const dirData = routes[editingRouteId][editingDirection];
                 if (dirData.stopIds[dirData.stopIds.length - 1] === nodeId) return;
                 dirData.stopIds.push(nodeId);
-                updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection);
+                updateRouteEditorUI(); 
+                drawRouteLine(editingRouteId, editingDirection); // Cache handles this quickly
             } else if (appMode !== 'EDIT_ROUTE') { 
                 globalStops[nodeId].marker.openPopup(); 
             }
@@ -531,9 +537,6 @@
             for (let routeId in routes) {
                 ['outbound', 'inbound'].forEach(dir => {
                     routes[routeId][dir].stopIds = routes[routeId][dir].stopIds.filter(id => id !== nodeId);
-                    
-                    // If a node is deleted, its segments are broken. Clear cache for safety.
-                    routes[routeId][dir].segmentsCache = {}; 
                     drawRouteLine(routeId, dir); 
                 });
             }
@@ -547,8 +550,8 @@
             routes[routeNum] = {
                 group: document.getElementById('route-group').value.trim() || "Uncategorized", 
                 color: document.getElementById('route-color').value,
-                outbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [], manualLights: [], segmentsCache: {} },
-                inbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [], manualLights: [], segmentsCache: {} }
+                outbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [], manualLights: [] },
+                inbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [], manualLights: [] }
             };
             document.getElementById('route-number').value = ''; updateRouteListUI();
         });
@@ -608,30 +611,8 @@
             });
         }
 
-        window.removeNodeFromRoute = function(index) { 
-            // If we remove a node, recalculate the gap between the broken nodes by clearing cache
-            routes[editingRouteId][editingDirection].segmentsCache = {}; 
-            routes[editingRouteId][editingDirection].stopIds.splice(index, 1); 
-            updateRouteEditorUI(); 
-            drawRouteLine(editingRouteId, editingDirection); 
-        };
-        
-        document.getElementById('btn-clear-direction').addEventListener('click', () => { 
-            if(confirm("Clear route nodes?")) { 
-                routes[editingRouteId][editingDirection].stopIds = []; 
-                routes[editingRouteId][editingDirection].segmentsCache = {};
-                updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection); 
-            }
-        });
-
-        // Force Reroute Button Listener
-        document.getElementById('btn-force-reroute').addEventListener('click', () => {
-            if (!editingRouteId) return;
-            if (confirm("Force a full recalculation of this route direction? This clears the local path cache.")) {
-                routes[editingRouteId][editingDirection].segmentsCache = {};
-                drawRouteLine(editingRouteId, editingDirection);
-            }
-        });
+        window.removeNodeFromRoute = function(index) { routes[editingRouteId][editingDirection].stopIds.splice(index, 1); updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection); };
+        document.getElementById('btn-clear-direction').addEventListener('click', () => { if(confirm("Clear route nodes?")) { routes[editingRouteId][editingDirection].stopIds = []; updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection); }});
 
         window.addTimetableEntry = function() {
             const timeInput = document.getElementById('new-timetable-time').value;
@@ -706,7 +687,6 @@
             const dirData = routes[routeId][direction];
             if(!dirData.simPath) return;
 
-            // Reset all lights
             dirData.simPath.forEach(p => p.isTrafficLight = false);
 
             if (!dirData.manualLights || dirData.manualLights.length === 0) return;
@@ -714,7 +694,6 @@
             dirData.manualLights.forEach(light => {
                 let minDist = Infinity;
                 let closestIdx = -1;
-                // Snap to closest point on simPath
                 dirData.simPath.forEach((p, idx) => {
                     let dist = map.distance([light.lat, light.lng], [p.coord[1], p.coord[0]]);
                     if(dist < minDist) { minDist = dist; closestIdx = idx; }
@@ -722,7 +701,6 @@
                 
                 if(closestIdx !== -1) {
                     dirData.simPath[closestIdx].isTrafficLight = true;
-                    // Move the visual marker to the snapped path coordinate exactly
                     light.lat = dirData.simPath[closestIdx].coord[1];
                     light.lng = dirData.simPath[closestIdx].coord[0];
                 }
@@ -730,7 +708,7 @@
         }
 
 
-        // --- 8. Fast Rendering engine (Loads from JSON instantly) ---
+        // --- 8. Fast Rendering engine ---
         window.renderRouteLineFromSimPath = function(routeId, direction) {
             const dirData = routes[routeId][direction];
             if (!dirData.simPath || dirData.simPath.length === 0) return;
@@ -748,8 +726,17 @@
             dirData.spawnedToday = dirData.timetable.map(() => false);
         }
 
-        // --- 9. API Fetcher with Segment Caching ---
-        async function drawRouteLine(routeId, direction) {
+        // --- 9. API Fetcher with Caching ---
+        
+        window.forceRerouteRoute = function() {
+            if (!editingRouteId) return;
+            document.getElementById('header-text').innerText = "Forcing Reroute...";
+            drawRouteLine(editingRouteId, editingDirection, true).then(() => {
+                document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
+            });
+        }
+
+        async function drawRouteLine(routeId, direction, forceReroute = false) {
             const dirData = routes[routeId][direction];
             if (dirData.polylineLayer) { map.removeLayer(dirData.polylineLayer); }
             dirData.simPath = null;
@@ -758,74 +745,59 @@
 
             let simPath = [];
             
-            // Initialize cache for this direction if it doesn't exist
-            if (!dirData.segmentsCache) dirData.segmentsCache = {};
-
-            document.getElementById('header-text').innerText = "Fetching Map Data...";
-
             for (let i = 0; i < dirData.stopIds.length - 1; i++) {
                 let n1 = globalStops[dirData.stopIds[i]];
                 let n2 = globalStops[dirData.stopIds[i+1]];
                 
-                let segmentKey = `${n1.id}_${n2.id}`;
-                let segmentPoints = [];
+                simPath.push({ coord: [n1.lng, n1.lat], speed: 11.11, nodeId: n1.id });
 
-                // Push the starting node coordinate
-                if (i === 0) {
-                    simPath.push({ coord: [n1.lng, n1.lat], speed: 11.11, nodeId: n1.id });
-                } else {
-                    simPath.push({ coord: [n1.lng, n1.lat], speed: 11.11, nodeId: n1.id });
-                }
+                let cacheKey = `${n1.id}_${n2.id}`;
 
-                // Check Cache first!
-                if (dirData.segmentsCache[segmentKey]) {
-                    segmentPoints = dirData.segmentsCache[segmentKey];
-                } else if (n1.mode === 'free' || n2.mode === 'free') {
+                if (n1.mode === 'free' || n2.mode === 'free') {
                     // Straight Line Fallback 
-                    segmentPoints = []; // straight line means no intermediate road turns
-                    dirData.segmentsCache[segmentKey] = segmentPoints;
                 } else {
-                    try {
-                        let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${n1.lng},${n1.lat};${n2.lng},${n2.lat}?geometries=geojson&overview=full&steps=true`);
-                        let data = await res.json();
-                        if (data.code === 'Ok') {
-                            data.routes[0].legs[0].steps.forEach((step) => {
-                                let calcSpeed = step.duration > 0 ? (step.distance / step.duration) : 0;
-                                let simSpeed = (calcSpeed > 11) ? 19.44 : 11.11; 
-                                
-                                step.geometry.coordinates.forEach((coord, coordIdx) => {
-                                    if (coordIdx === 0 && step === data.routes[0].legs[0].steps[0]) return;
-                                    if (coordIdx === step.geometry.coordinates.length - 1 && step === data.routes[0].legs[0].steps[data.routes[0].legs[0].steps.length-1]) return;
+                    // USE CACHE if it exists and we aren't forcing a reroute
+                    if (!forceReroute && osrmCache[cacheKey]) {
+                        simPath.push(...osrmCache[cacheKey]);
+                    } else {
+                        try {
+                            document.getElementById('header-text').innerText = "Calculating Path...";
+                            let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${n1.lng},${n1.lat};${n2.lng},${n2.lat}?geometries=geojson&overview=full&steps=true`);
+                            let data = await res.json();
+                            let segmentPath = [];
+                            
+                            if (data.code === 'Ok') {
+                                data.routes[0].legs[0].steps.forEach((step) => {
+                                    let calcSpeed = step.duration > 0 ? (step.distance / step.duration) : 0;
+                                    let simSpeed = (calcSpeed > 11) ? 19.44 : 11.11; 
                                     
-                                    let cleanCoord = [Math.round(coord[0]*100000)/100000, Math.round(coord[1]*100000)/100000];
-                                    segmentPoints.push({ coord: cleanCoord, speed: simSpeed, nodeId: null, isTrafficLight: false });
+                                    step.geometry.coordinates.forEach((coord, coordIdx) => {
+                                        if (coordIdx === 0 && step === data.routes[0].legs[0].steps[0]) return;
+                                        if (coordIdx === step.geometry.coordinates.length - 1 && step === data.routes[0].legs[0].steps[data.routes[0].legs[0].steps.length-1]) return;
+                                        
+                                        let cleanCoord = [Math.round(coord[0]*100000)/100000, Math.round(coord[1]*100000)/100000];
+                                        segmentPath.push({ coord: cleanCoord, speed: simSpeed, nodeId: null, isTrafficLight: false });
+                                    });
                                 });
-                            });
-                        }
-                        // Save to cache so we never look this up again unless forced
-                        dirData.segmentsCache[segmentKey] = segmentPoints;
-                    } catch (err) { 
-                        console.error("OSRM segment failed", err); 
-                        dirData.segmentsCache[segmentKey] = []; // Save empty array on failure to prevent infinite retry loops
+                            }
+                            
+                            osrmCache[cacheKey] = segmentPath; // SAVE to cache
+                            simPath.push(...segmentPath);
+                            
+                        } catch (err) { console.error("OSRM segment failed", err); }
                     }
                 }
-                
-                // Append the segment geometry points to the master path
-                simPath.push(...segmentPoints);
             }
             
-            // Push final destination node
+            document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
+            
             let lastNode = globalStops[dirData.stopIds[dirData.stopIds.length - 1]];
             simPath.push({ coord: [lastNode.lng, lastNode.lat], speed: 11.11, nodeId: lastNode.id, isEnd: true });
 
             dirData.simPath = simPath;
             
-            // Reapply lights on top of the new structure
             applyLightsToSimPath(routeId, direction);
             renderRouteLineFromSimPath(routeId, direction);
-
-            // Revert header
-            document.getElementById('header-text').innerText = `Editing Route ${routeId}`;
         }
     </script>
 </body>
