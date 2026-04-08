@@ -23,7 +23,7 @@
         .time-display { font-family: monospace; font-size: 1.3em; font-weight: bold; color: #333; background: #e9ecef; padding: 2px 8px; border-radius: 4px; }
         input[type=range] { width: 100px; }
 
-        #ui-panel { position: absolute; bottom: 0; left: 0; width: 100%; background: white; z-index: 1000; border-radius: 15px 15px 0 0; box-shadow: 0 -5px 15px rgba(0,0,0,0.2); display: flex; flex-direction: column; max-height: 60vh; height: 60vh; transition: transform 0.3s ease-in-out; }
+        #ui-panel { position: absolute; bottom: 0; left: 0; width: 100%; background: white; z-index: 1000; border-radius: 15px 15px 0 0; box-shadow: 0 -5px 15px rgba(0,0,0,0.2); display: flex; flex-direction: column; max-height: 65vh; height: 65vh; transition: transform 0.3s ease-in-out; }
         .panel-collapsed { transform: translateY(calc(100% - 50px)); }
         .panel-header { padding: 15px; background: #343a40; color: white; border-radius: 15px 15px 0 0; font-weight: bold; text-align: center; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
         .panel-content { padding: 15px; overflow-y: auto; flex: 1; }
@@ -32,7 +32,7 @@
         .section-title { font-weight: bold; margin-bottom: 10px; font-size: 0.9em; color: #495057; text-transform: uppercase; }
 
         .form-group { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
-        input[type="text"], input[type="time"] { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        input[type="text"], input[type="number"], input[type="time"] { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
         
         button { padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em; }
         button:hover { background: #0056b3; }
@@ -69,8 +69,8 @@
             <span id="speed-display" style="font-weight: bold; width: 40px;">1x</span>
         </div>
         <div class="control-group">
-            <button class="sys-btn" onclick="saveLocal()">💾 Quick Save</button>
-            <button class="sys-btn" onclick="loadLocal()">📂 Quick Load</button>
+            <button class="sys-btn" onclick="saveLocal()">💾 Save</button>
+            <button class="sys-btn" onclick="loadLocal()">📂 Load</button>
             <div style="border-left: 1px solid #ccc; height: 20px;"></div>
             <button class="sys-btn" onclick="exportData()">📤 Export</button>
             <button class="sys-btn" onclick="document.getElementById('import-file').click()">📥 Import</button>
@@ -109,7 +109,6 @@
                     <button id="mode-wp-snap" class="tab-btn" onclick="setMode('BUILD_WP_SNAP')">📍 WP (Snap)</button>
                     <button id="mode-wp-free" class="tab-btn" onclick="setMode('BUILD_WP_FREE')">📍 WP (Free)</button>
                 </div>
-                <p style="font-size: 0.75em; color: #666; margin: 5px 0 0 0;"><b>Snap</b> = Follows road. <b>Free</b> = Direct straight line. <b>WP</b> = Bus adjusts route but won't pause.</p>
             </div>
 
             <div class="section" id="route-creation-section">
@@ -135,12 +134,16 @@
                 <div id="current-route-stops" style="max-height: 100px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px;"></div>
                 
                 <div style="background: #e9ecef; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
-                    <div style="font-size: 0.85em; font-weight: bold; margin-bottom: 5px;">Timetable (Start Times)</div>
+                    <div style="font-size: 0.85em; font-weight: bold; margin-bottom: 5px;">Timetable</div>
                     <div class="form-group" style="margin-bottom: 5px;">
                         <input type="time" id="new-timetable-time">
-                        <button onclick="addTimetableEntry()">Add Time</button>
+                        <button onclick="addTimetableEntry()">Add</button>
                     </div>
-                    <div id="current-timetable-list" style="max-height: 80px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px;"></div>
+                    <div class="form-group" style="margin-bottom: 5px;">
+                        <input type="number" id="gen-interval" placeholder="Mins" style="width:60px; flex:none;">
+                        <button onclick="generateTimetable()" style="background:#17a2b8;">Auto-Gen (6AM-11PM)</button>
+                    </div>
+                    <div id="current-timetable-list" style="max-height: 150px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px;"></div>
                 </div>
                 
                 <div class="form-group">
@@ -222,13 +225,20 @@
                         let currNode = this.simPath[this.pathIdx];
                         this.exactPos = L.latLng(currNode.coord[1], currNode.coord[0]);
 
-                        // Check if we hit a mapped Stop (ignore waypoints)
+                        // Check if we hit a mapped Stop or a Traffic Light
                         if (currNode.nodeId && !currNode.isEnd) {
                             let nodeData = globalStops[currNode.nodeId];
                             if (nodeData && nodeData.type === 'stop') {
                                 this.state = 'STOPPED';
                                 this.stopTimer = 5 + Math.random() * 15; 
                                 break; 
+                            }
+                        } else if (currNode.isTrafficLight) {
+                            // 50% chance to catch a red light at marked intersections
+                            if (Math.random() < 0.50) {
+                                this.state = 'STOPPED';
+                                this.stopTimer = 10 + Math.random() * 20; // Wait 10-30 real seconds
+                                break;
                             }
                         }
 
@@ -327,12 +337,13 @@
                 const s = globalStops[id];
                 saveData.stops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, type: s.type, mode: s.mode };
             }
+            // Saving simPath directly stops the load times from lagging!
             for (let id in routes) {
                 const r = routes[id];
                 saveData.routes[id] = {
                     group: r.group, color: r.color,
-                    outbound: { stopIds: [...r.outbound.stopIds], timetable: [...r.outbound.timetable] },
-                    inbound: { stopIds: [...r.inbound.stopIds], timetable: [...r.inbound.timetable] }
+                    outbound: { stopIds: [...r.outbound.stopIds], timetable: [...r.outbound.timetable], simPath: r.outbound.simPath },
+                    inbound: { stopIds: [...r.inbound.stopIds], timetable: [...r.inbound.timetable], simPath: r.inbound.simPath }
                 };
             }
             return JSON.stringify(saveData);
@@ -369,10 +380,16 @@
                 const r = saveData.routes[id];
                 routes[id] = {
                     group: r.group, color: r.color,
-                    outbound: { stopIds: r.outbound.stopIds, timetable: r.outbound.timetable || [], polylineLayer: null },
-                    inbound: { stopIds: r.inbound.stopIds, timetable: r.inbound.timetable || [], polylineLayer: null }
+                    outbound: { stopIds: r.outbound.stopIds, timetable: r.outbound.timetable || [], polylineLayer: null, simPath: r.outbound.simPath },
+                    inbound: { stopIds: r.inbound.stopIds, timetable: r.inbound.timetable || [], polylineLayer: null, simPath: r.inbound.simPath }
                 };
-                drawRouteLine(id, 'outbound'); drawRouteLine(id, 'inbound');
+                
+                // Instantly Draw saved paths without API calls!
+                if (routes[id].outbound.simPath) renderRouteLineFromSimPath(id, 'outbound');
+                else drawRouteLine(id, 'outbound'); 
+                
+                if (routes[id].inbound.simPath) renderRouteLineFromSimPath(id, 'inbound');
+                else drawRouteLine(id, 'inbound');
             }
             
             setMode('IDLE'); updateRouteListUI();
@@ -393,11 +410,10 @@
 
         // --- 6. Nodes & Map Interaction ---
         function setMode(mode) {
-            // Un-highlight all mode buttons
             document.querySelectorAll('#mode-stop-snap, #mode-stop-free, #mode-wp-snap, #mode-wp-free').forEach(b => b.classList.remove('active-mode'));
             
             if (appMode === mode) {
-                appMode = 'IDLE'; // Toggle off
+                appMode = 'IDLE';
                 map.getContainer().style.cursor = '';
                 document.getElementById('header-text').innerText = "City Planner: Idle";
             } else {
@@ -430,7 +446,7 @@
 
         function createNodeMarker(lat, lng, type, mode) {
             let radius = type === 'stop' ? 7 : 4;
-            let fillColor = '#333'; // Default Snap
+            let fillColor = '#333'; 
             if (mode === 'free' && type === 'stop') fillColor = '#007bff';
             if (mode === 'snap' && type === 'waypoint') fillColor = '#6c757d';
             if (mode === 'free' && type === 'waypoint') fillColor = '#17a2b8';
@@ -535,7 +551,8 @@
         window.saveRouteSettings = function() {
             routes[settingsTargetRoute].group = document.getElementById('edit-route-group').value.trim() || "Uncategorized";
             routes[settingsTargetRoute].color = document.getElementById('edit-route-color').value;
-            drawRouteLine(settingsTargetRoute, 'outbound'); drawRouteLine(settingsTargetRoute, 'inbound');
+            renderRouteLineFromSimPath(settingsTargetRoute, 'outbound'); 
+            renderRouteLineFromSimPath(settingsTargetRoute, 'inbound');
             updateRouteListUI(); closeEditSettings();
         };
 
@@ -567,13 +584,49 @@
             const timeInput = document.getElementById('new-timetable-time').value;
             if(!timeInput) return;
             const tArray = routes[editingRouteId][editingDirection].timetable;
-            if(!tArray.includes(timeInput)) { tArray.push(timeInput); tArray.sort(); }
+            tArray.push(timeInput); // Removed restriction to allow multiple
+            tArray.sort(); 
             routes[editingRouteId][editingDirection].spawnedToday = tArray.map(() => false); 
             document.getElementById('new-timetable-time').value = ''; updateRouteEditorUI();
         }
+
+        // New Auto Gen function
+        window.generateTimetable = function() {
+            let interval = parseInt(document.getElementById('gen-interval').value);
+            if(isNaN(interval) || interval <= 0) return;
+            let tArray = routes[editingRouteId][editingDirection].timetable;
+            for(let h=6; h<=23; h++) {
+                for(let m=0; m<60; m+=interval) {
+                    let timeStr = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
+                    tArray.push(timeStr);
+                }
+            }
+            tArray.sort();
+            routes[editingRouteId][editingDirection].spawnedToday = tArray.map(() => false);
+            updateRouteEditorUI();
+        }
+
         window.removeTimetableEntry = function(index) { routes[editingRouteId][editingDirection].timetable.splice(index, 1); routes[editingRouteId][editingDirection].spawnedToday.splice(index, 1); updateRouteEditorUI(); }
 
-       // --- 8. Segment-by-Segment Pathfinding Engine ---
+        // --- 8. Fast Rendering engine (Loads from JSON instantly) ---
+        window.renderRouteLineFromSimPath = function(routeId, direction) {
+            const dirData = routes[routeId][direction];
+            if (!dirData.simPath || dirData.simPath.length === 0) return;
+            if (dirData.polylineLayer) map.removeLayer(dirData.polylineLayer);
+
+            let polylines = L.featureGroup().addTo(map);
+            let routeColor = routes[routeId].color;
+            let isOutbound = direction === 'outbound';
+            let lineStyle = { color: routeColor, weight: isOutbound ? 5 : 4, opacity: isOutbound ? 0.9 : 0.6, dashArray: isOutbound ? null : '5, 10' };
+
+            let latlngs = dirData.simPath.map(p => [p.coord[1], p.coord[0]]);
+            L.polyline(latlngs, lineStyle).addTo(polylines);
+            
+            dirData.polylineLayer = polylines;
+            dirData.spawnedToday = dirData.timetable.map(() => false);
+        }
+
+        // --- 9. API Fetcher & Traffic Light scanner ---
         async function drawRouteLine(routeId, direction) {
             const dirData = routes[routeId][direction];
             if (dirData.polylineLayer) { map.removeLayer(dirData.polylineLayer); }
@@ -582,39 +635,47 @@
             if (dirData.stopIds.length < 2) return; 
 
             let simPath = [];
-            let polylines = L.featureGroup().addTo(map);
-            let routeColor = routes[routeId].color;
-            let isOutbound = direction === 'outbound';
-            let lineStyle = { color: routeColor, weight: isOutbound ? 5 : 4, opacity: isOutbound ? 0.9 : 0.6, dashArray: isOutbound ? null : '5, 10' };
-
+            
             for (let i = 0; i < dirData.stopIds.length - 1; i++) {
                 let n1 = globalStops[dirData.stopIds[i]];
                 let n2 = globalStops[dirData.stopIds[i+1]];
                 
-                // 1. Always push the exact node at the start of its segment, marked with its ID
-                simPath.push({ coord: [n1.lng, n1.lat], speed: 13.88, nodeId: n1.id });
+                // City Base Speed lowered to 40km/h (11.11 m/s)
+                simPath.push({ coord: [n1.lng, n1.lat], speed: 11.11, nodeId: n1.id });
 
                 if (n1.mode === 'free' || n2.mode === 'free') {
-                    // Straight Line Fallback for Free nodes
-                    L.polyline([[n1.lat, n1.lng], [n2.lat, n2.lng]], lineStyle).addTo(polylines);
+                    // It will draw straight to the next point in the loop
                 } else {
-                    // OSRM Request for Snapped segments - ADDED &overview=full for high-res curves
                     try {
                         let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${n1.lng},${n1.lat};${n2.lng},${n2.lat}?geometries=geojson&overview=full&steps=true`);
                         let data = await res.json();
                         if (data.code === 'Ok') {
-                            // Draw the high-res line on the map
-                            L.geoJSON(data.routes[0].geometry, { style: lineStyle, interactive: false }).addTo(polylines);
-                            
                             data.routes[0].legs[0].steps.forEach((step) => {
                                 let calcSpeed = step.duration > 0 ? (step.distance / step.duration) : 0;
-                                let simSpeed = (calcSpeed > 11) ? 19.44 : 13.88; 
+                                let simSpeed = (calcSpeed > 11) ? 19.44 : 11.11; // 70km/h on highway, 40km/h city
                                 
+                                // Scan for Traffic Lights in the API
+                                let signalCoords = new Set();
+                                if (step.intersections) {
+                                    step.intersections.forEach(ix => {
+                                        // OSRM flags intersections with lights
+                                        if (ix.traffic_signals || (ix.classes && ix.classes.includes('traffic_signals'))) {
+                                            // Truncate to match precision
+                                            let locString = `${Math.round(ix.location[0]*100000)/100000},${Math.round(ix.location[1]*100000)/100000}`;
+                                            signalCoords.add(locString);
+                                        }
+                                    });
+                                }
+
                                 step.geometry.coordinates.forEach((coord, coordIdx) => {
                                     if (coordIdx === 0 && step === data.routes[0].legs[0].steps[0]) return;
                                     if (coordIdx === step.geometry.coordinates.length - 1 && step === data.routes[0].legs[0].steps[data.routes[0].legs[0].steps.length-1]) return;
                                     
-                                    simPath.push({ coord: coord, speed: simSpeed, nodeId: null });
+                                    // Truncate decimals so the JSON save file isn't massive
+                                    let cleanCoord = [Math.round(coord[0]*100000)/100000, Math.round(coord[1]*100000)/100000];
+                                    let isSignal = signalCoords.has(`${cleanCoord[0]},${cleanCoord[1]}`);
+                                    
+                                    simPath.push({ coord: cleanCoord, speed: simSpeed, nodeId: null, isTrafficLight: isSignal });
                                 });
                             });
                         }
@@ -622,13 +683,13 @@
                 }
             }
             
-            // 2. Push the final destination node
             let lastNode = globalStops[dirData.stopIds[dirData.stopIds.length - 1]];
-            simPath.push({ coord: [lastNode.lng, lastNode.lat], speed: 13.88, nodeId: lastNode.id, isEnd: true });
+            simPath.push({ coord: [lastNode.lng, lastNode.lat], speed: 11.11, nodeId: lastNode.id, isEnd: true });
 
             dirData.simPath = simPath;
-            dirData.polylineLayer = polylines;
-            dirData.spawnedToday = dirData.timetable.map(() => false);
+            
+            // Draw visually based entirely on the calculated simPath
+            renderRouteLineFromSimPath(routeId, direction);
         }
     </script>
 </body>
