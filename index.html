@@ -195,6 +195,7 @@
                 this.pathIdx = 0;
                 this.state = 'DRIVING'; 
                 this.stopTimer = 0;
+                this.justStoppedAtLight = false; // NEW: Prevents multi-stopping at the same intersection
                 this.exactPos = L.latLng(simPath[0].coord[1], simPath[0].coord[0]);
                 this.distanceToNext = map.distance(this.exactPos, L.latLng(simPath[1].coord[1], simPath[1].coord[0]));
                 
@@ -225,21 +226,28 @@
                         let currNode = this.simPath[this.pathIdx];
                         this.exactPos = L.latLng(currNode.coord[1], currNode.coord[0]);
 
-                        // Check if we hit a mapped Stop or a Traffic Light
+                        // Check if we hit a mapped Stop or a Real Traffic Light
                         if (currNode.nodeId && !currNode.isEnd) {
                             let nodeData = globalStops[currNode.nodeId];
                             if (nodeData && nodeData.type === 'stop') {
                                 this.state = 'STOPPED';
                                 this.stopTimer = 5 + Math.random() * 15; 
+                                this.justStoppedAtLight = false;
                                 break; 
                             }
                         } else if (currNode.isTrafficLight) {
-                            // 50% chance to catch a red light at marked intersections
-                            if (Math.random() < 0.50) {
-                                this.state = 'STOPPED';
-                                this.stopTimer = 10 + Math.random() * 20; // Wait 10-30 real seconds
-                                break;
+                            // Hit a traffic light node. Check if we haven't already stopped here.
+                            if (!this.justStoppedAtLight) {
+                                this.justStoppedAtLight = true;
+                                if (Math.random() < 0.60) { // 60% chance to catch a red light
+                                    this.state = 'STOPPED';
+                                    this.stopTimer = 10 + Math.random() * 20; 
+                                    break;
+                                }
                             }
+                        } else {
+                            // Normal road piece, reset the light flag so we can stop at the NEXT intersection
+                            this.justStoppedAtLight = false;
                         }
 
                         if (this.pathIdx < this.simPath.length - 1) {
@@ -257,7 +265,6 @@
                 this.marker.setLatLng(this.exactPos);
             }
         }
-
         // --- 3. Game Loop ---
         function gameLoop(now) {
             let dtReal = (now - lastRealTime) / 1000; 
@@ -626,7 +633,7 @@
             dirData.spawnedToday = dirData.timetable.map(() => false);
         }
 
-        // --- 9. API Fetcher & Traffic Light scanner ---
+        // --- 9. API Fetcher & Real Traffic Light scanner ---
         async function drawRouteLine(routeId, direction) {
             const dirData = routes[routeId][direction];
             if (dirData.polylineLayer) { map.removeLayer(dirData.polylineLayer); }
@@ -634,17 +641,30 @@
             
             if (dirData.stopIds.length < 2) return; 
 
+            // 1. Fetch REAL traffic lights from Overpass API for this route's area
+            let bounds = L.latLngBounds(dirData.stopIds.map(id => [globalStops[id].lat, globalStops[id].lng]));
+            bounds = bounds.pad(0.05); // Add a small margin
+            let realLights = [];
+            
+            try {
+                document.getElementById('header-text').innerText = "Fetching Map Data...";
+                let overpassQuery = `[out:json];node["highway"="traffic_signals"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});out;`;
+                let opRes = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: overpassQuery });
+                let opData = await opRes.json();
+                realLights = opData.elements.map(e => ({lat: e.lat, lng: e.lon}));
+                document.getElementById('header-text').innerText = `Editing Route ${routeId}`;
+            } catch(e) { console.warn("Overpass fetch failed", e); }
+
             let simPath = [];
             
             for (let i = 0; i < dirData.stopIds.length - 1; i++) {
                 let n1 = globalStops[dirData.stopIds[i]];
                 let n2 = globalStops[dirData.stopIds[i+1]];
                 
-                // City Base Speed lowered to 40km/h (11.11 m/s)
                 simPath.push({ coord: [n1.lng, n1.lat], speed: 11.11, nodeId: n1.id });
 
                 if (n1.mode === 'free' || n2.mode === 'free') {
-                    // It will draw straight to the next point in the loop
+                    // Straight Line Fallback for Free Place nodes
                 } else {
                     try {
                         let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${n1.lng},${n1.lat};${n2.lng},${n2.lat}?geometries=geojson&overview=full&steps=true`);
@@ -652,28 +672,25 @@
                         if (data.code === 'Ok') {
                             data.routes[0].legs[0].steps.forEach((step) => {
                                 let calcSpeed = step.duration > 0 ? (step.distance / step.duration) : 0;
-                                let simSpeed = (calcSpeed > 11) ? 19.44 : 11.11; // 70km/h on highway, 40km/h city
+                                let simSpeed = (calcSpeed > 11) ? 19.44 : 11.11; 
                                 
-                                // Scan for Traffic Lights in the API
-                                let signalCoords = new Set();
-                                if (step.intersections) {
-                                    step.intersections.forEach(ix => {
-                                        // OSRM flags intersections with lights
-                                        if (ix.traffic_signals || (ix.classes && ix.classes.includes('traffic_signals'))) {
-                                            // Truncate to match precision
-                                            let locString = `${Math.round(ix.location[0]*100000)/100000},${Math.round(ix.location[1]*100000)/100000}`;
-                                            signalCoords.add(locString);
-                                        }
-                                    });
-                                }
-
                                 step.geometry.coordinates.forEach((coord, coordIdx) => {
                                     if (coordIdx === 0 && step === data.routes[0].legs[0].steps[0]) return;
                                     if (coordIdx === step.geometry.coordinates.length - 1 && step === data.routes[0].legs[0].steps[data.routes[0].legs[0].steps.length-1]) return;
                                     
-                                    // Truncate decimals so the JSON save file isn't massive
                                     let cleanCoord = [Math.round(coord[0]*100000)/100000, Math.round(coord[1]*100000)/100000];
-                                    let isSignal = signalCoords.has(`${cleanCoord[0]},${cleanCoord[1]}`);
+                                    
+                                    // 2. Cross-reference the path coordinate with REAL map traffic lights (15-meter radius)
+                                    let isSignal = false;
+                                    for (let j = 0; j < realLights.length; j++) {
+                                        let light = realLights[j];
+                                        // Quick math check first before heavy distance calculation
+                                        if (Math.abs(cleanCoord[0] - light.lng) < 0.0003 && Math.abs(cleanCoord[1] - light.lat) < 0.0003) {
+                                            if (map.distance([cleanCoord[1], cleanCoord[0]], [light.lat, light.lng]) < 15) {
+                                                isSignal = true; break;
+                                            }
+                                        }
+                                    }
                                     
                                     simPath.push({ coord: cleanCoord, speed: simSpeed, nodeId: null, isTrafficLight: isSignal });
                                 });
@@ -687,8 +704,6 @@
             simPath.push({ coord: [lastNode.lng, lastNode.lat], speed: 11.11, nodeId: lastNode.id, isEnd: true });
 
             dirData.simPath = simPath;
-            
-            // Draw visually based entirely on the calculated simPath
             renderRouteLineFromSimPath(routeId, direction);
         }
     </script>
