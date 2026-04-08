@@ -183,7 +183,7 @@
         let gameTimeInSeconds = d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds(); 
         let activeBuses = [];
         let lastRealTime = performance.now();
-        let osrmCache = {}; // NEW: Stores previously calculated route segments to save bandwidth & time
+        let osrmCache = {}; 
 
         function timeToSeconds(timeStr) {
             const parts = timeStr.split(':');
@@ -250,7 +250,6 @@
                                 this.justStoppedAtLight = true;
                                 if (Math.random() < 0.85) { 
                                     this.state = 'STOPPED';
-                                    // UPDATED TIMING: 5 + Random * 65
                                     this.stopTimer = 5 + Math.random() * 65; 
                                     break;
                                 }
@@ -348,7 +347,7 @@
             else { panel.classList.remove('panel-collapsed'); arrow.innerText = '▼'; }
         }
 
-        // --- 5. Save/Load (NOW SAVES CACHE) ---
+        // --- 5. Save/Load ---
         function getGameStateJSON() {
             const saveData = { stops: {}, routes: {}, osrmCache: osrmCache };
             for (let id in globalStops) {
@@ -379,7 +378,7 @@
                 if(routes[id].inbound.polylineLayer) map.removeLayer(routes[id].inbound.polylineLayer);
             }
             globalStops = {}; routes = {};
-            osrmCache = saveData.osrmCache || {}; // Load cache
+            osrmCache = saveData.osrmCache || {}; 
             
             let maxStopNum = 0;
             for (let id in saveData.stops) {
@@ -428,7 +427,7 @@
             document.querySelectorAll('#mode-stop-snap, #mode-stop-free, #mode-wp-snap, #mode-wp-free').forEach(b => b.classList.remove('active-mode'));
             if(placingTrafficLight) toggleLightPlacement(); 
             
-            if (appMode === mode) {
+            if (appMode === mode && mode !== 'EDIT_ROUTE') {
                 appMode = 'IDLE';
                 map.getContainer().style.cursor = '';
                 document.getElementById('header-text').innerText = "City Planner: Idle";
@@ -461,7 +460,10 @@
             }
         }
 
-        document.getElementById('btn-done-editing').addEventListener('click', () => setMode('IDLE'));
+        document.getElementById('btn-done-editing').addEventListener('click', () => {
+            appMode = ''; // Hack to force setMode to switch to IDLE cleanly
+            setMode('IDLE');
+        });
 
         function createNodeMarker(lat, lng, type, mode) {
             let radius = type === 'stop' ? 7 : 4;
@@ -513,7 +515,7 @@
                 if (dirData.stopIds[dirData.stopIds.length - 1] === nodeId) return;
                 dirData.stopIds.push(nodeId);
                 updateRouteEditorUI(); 
-                drawRouteLine(editingRouteId, editingDirection); // Cache handles this quickly
+                drawRouteLine(editingRouteId, editingDirection); 
             } else if (appMode !== 'EDIT_ROUTE') { 
                 globalStops[nodeId].marker.openPopup(); 
             }
@@ -532,12 +534,16 @@
             if (appMode === 'EDIT_ROUTE') updateRouteEditorUI();
         };
 
+        // FIXED: Only recalculate routes that actually contained the deleted node
         window.deleteNode = function(nodeId) {
             stopLayerGroup.removeLayer(globalStops[nodeId].marker); delete globalStops[nodeId];
             for (let routeId in routes) {
                 ['outbound', 'inbound'].forEach(dir => {
+                    let oldLen = routes[routeId][dir].stopIds.length;
                     routes[routeId][dir].stopIds = routes[routeId][dir].stopIds.filter(id => id !== nodeId);
-                    drawRouteLine(routeId, dir); 
+                    if(oldLen !== routes[routeId][dir].stopIds.length) {
+                        drawRouteLine(routeId, dir); 
+                    }
                 });
             }
             if (appMode === 'EDIT_ROUTE') updateRouteEditorUI();
@@ -590,7 +596,17 @@
             updateRouteListUI(); closeEditSettings();
         };
 
-        window.startEditingRoute = function(id) { editingRouteId = id; setMode('EDIT_ROUTE'); };
+        // FIXED: Switching between routes smoothly without accidental toggling
+        window.startEditingRoute = function(id) { 
+            editingRouteId = id; 
+            if(appMode !== 'EDIT_ROUTE') {
+                setMode('EDIT_ROUTE'); 
+            } else {
+                document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
+                updateRouteEditorUI();
+                renderTrafficLightsUI();
+            }
+        };
 
         document.getElementById('btn-outbound').addEventListener('click', (e) => { editingDirection = 'outbound'; e.target.classList.add('active-mode'); document.getElementById('btn-inbound').classList.remove('active-mode'); updateRouteEditorUI(); renderTrafficLightsUI(); });
         document.getElementById('btn-inbound').addEventListener('click', (e) => { editingDirection = 'inbound'; e.target.classList.add('active-mode'); document.getElementById('btn-outbound').classList.remove('active-mode'); updateRouteEditorUI(); renderTrafficLightsUI(); });
@@ -707,7 +723,6 @@
             });
         }
 
-
         // --- 8. Fast Rendering engine ---
         window.renderRouteLineFromSimPath = function(routeId, direction) {
             const dirData = routes[routeId][direction];
@@ -756,9 +771,9 @@
                 if (n1.mode === 'free' || n2.mode === 'free') {
                     // Straight Line Fallback 
                 } else {
-                    // USE CACHE if it exists and we aren't forcing a reroute
                     if (!forceReroute && osrmCache[cacheKey]) {
-                        simPath.push(...osrmCache[cacheKey]);
+                        // FIXED: Deep clone the cache so routes don't share identical objects in memory
+                        simPath.push(...JSON.parse(JSON.stringify(osrmCache[cacheKey])));
                     } else {
                         try {
                             document.getElementById('header-text').innerText = "Calculating Path...";
@@ -781,8 +796,9 @@
                                 });
                             }
                             
-                            osrmCache[cacheKey] = segmentPath; // SAVE to cache
-                            simPath.push(...segmentPath);
+                            osrmCache[cacheKey] = segmentPath; 
+                            // Deep clone before pushing so memory is safe
+                            simPath.push(...JSON.parse(JSON.stringify(segmentPath)));
                             
                         } catch (err) { console.error("OSRM segment failed", err); }
                     }
