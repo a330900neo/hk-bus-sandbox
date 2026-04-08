@@ -573,7 +573,7 @@
         }
         window.removeTimetableEntry = function(index) { routes[editingRouteId][editingDirection].timetable.splice(index, 1); routes[editingRouteId][editingDirection].spawnedToday.splice(index, 1); updateRouteEditorUI(); }
 
-        // --- 8. Segment-by-Segment Pathfinding Engine ---
+       // --- 8. Segment-by-Segment Pathfinding Engine ---
         async function drawRouteLine(routeId, direction) {
             const dirData = routes[routeId][direction];
             if (dirData.polylineLayer) { map.removeLayer(dirData.polylineLayer); }
@@ -598,20 +598,19 @@
                     // Straight Line Fallback for Free nodes
                     L.polyline([[n1.lat, n1.lng], [n2.lat, n2.lng]], lineStyle).addTo(polylines);
                 } else {
-                    // OSRM Request for Snapped segments
+                    // OSRM Request for Snapped segments - ADDED &overview=full for high-res curves
                     try {
-                        let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${n1.lng},${n1.lat};${n2.lng},${n2.lat}?geometries=geojson&steps=true`);
+                        let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${n1.lng},${n1.lat};${n2.lng},${n2.lat}?geometries=geojson&overview=full&steps=true`);
                         let data = await res.json();
                         if (data.code === 'Ok') {
+                            // Draw the high-res line on the map
                             L.geoJSON(data.routes[0].geometry, { style: lineStyle, interactive: false }).addTo(polylines);
                             
                             data.routes[0].legs[0].steps.forEach((step) => {
-                                // Fix: Lowered Highway Trigger Threshold to 11m/s (~40km/h)
                                 let calcSpeed = step.duration > 0 ? (step.distance / step.duration) : 0;
                                 let simSpeed = (calcSpeed > 11) ? 19.44 : 13.88; 
                                 
                                 step.geometry.coordinates.forEach((coord, coordIdx) => {
-                                    // Skip first and last coordinate of the OSRM geometry so we don't duplicate N1 or accidentally push N2 early
                                     if (coordIdx === 0 && step === data.routes[0].legs[0].steps[0]) return;
                                     if (coordIdx === step.geometry.coordinates.length - 1 && step === data.routes[0].legs[0].steps[data.routes[0].legs[0].steps.length-1]) return;
                                     
