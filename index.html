@@ -32,15 +32,15 @@
         .section-title { font-weight: bold; margin-bottom: 10px; font-size: 0.9em; color: #495057; text-transform: uppercase; }
 
         .form-group { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
-        input[type="text"], input[type="time"], select { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit;}
+        input[type="text"], input[type="time"] { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
         
         button { padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em; }
         button:hover { background: #0056b3; }
         
-        .active-mode { background: #28a745 !important; border: 2px solid #1e7e34; } 
+        .active-mode { background: #28a745 !important; color: white !important; border: 2px solid #1e7e34 !important; } 
         .danger-btn { background: #dc3545 !important; }
-        .tab-btn { flex: 1; background: #6c757d; }
-        .active-tab { background: #17a2b8 !important; }
+        .tab-btn { flex: 1; background: #e9ecef; color: #333; border: 1px solid #ccc; }
+        .tab-btn:hover { background: #dee2e6; }
 
         .route-group { margin-bottom: 5px; }
         .group-title { font-weight: bold; background: #e9ecef; padding: 8px 10px; border-radius: 4px; cursor: pointer; font-size: 0.9em; display: flex; justify-content: space-between; }
@@ -48,14 +48,13 @@
         .group-content { margin-top: 5px; }
         .group-collapsed .group-content { display: none; }
         .group-collapsed .group-arrow { transform: rotate(-90deg); }
+        .group-arrow { transition: transform 0.2s; }
 
         .route-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border: 1px solid #ddd; margin-bottom: 5px; border-radius: 4px; background: white;}
         .stop-list-item, .time-list-item { display: flex; justify-content: space-between; font-size: 0.85em; padding: 5px; border-bottom: 1px solid #eee; }
         
-        .segment-editor { margin-left: 15px; border-left: 2px solid #adb5bd; padding: 4px 10px; font-size: 0.85em; color: #495057; background: #f8f9fa; display: flex; justify-content: space-between; align-items: center; }
-
         .stop-popup { text-align: center; }
-        .stop-popup input { width: 120px; margin-bottom: 5px; }
+        .stop-popup input { width: 140px; margin-bottom: 5px; }
 
         #edit-settings-modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; }
         .modal-content { background: white; padding: 20px; border-radius: 8px; width: 80%; max-width: 300px; }
@@ -99,15 +98,18 @@
             <span id="panel-arrow">▼</span>
         </div>
         <div class="panel-content">
+            
             <div class="section">
-                <div class="section-title">1. Infrastructure</div>
-                <div class="form-group" style="margin-bottom: 5px;">
-                    <select id="stop-snap-mode">
-                        <option value="driving">📍 Snap to Normal Roads</option>
-                        <option value="foot">🚷 Snap to Terminus / Restricted Roads</option>
-                    </select>
+                <div class="section-title">1. Infrastructure (Nodes)</div>
+                <div style="display: flex; gap: 5px; margin-bottom: 5px;">
+                    <button id="mode-stop-snap" class="tab-btn" onclick="setMode('BUILD_STOP_SNAP')">🚏 Stop (Snap)</button>
+                    <button id="mode-stop-free" class="tab-btn" onclick="setMode('BUILD_STOP_FREE')">🚏 Stop (Free)</button>
                 </div>
-                <button id="btn-build-stops" style="width: 100%;">🏗️ Build Mode: Drop Stops on Map</button>
+                <div style="display: flex; gap: 5px;">
+                    <button id="mode-wp-snap" class="tab-btn" onclick="setMode('BUILD_WP_SNAP')">📍 WP (Snap)</button>
+                    <button id="mode-wp-free" class="tab-btn" onclick="setMode('BUILD_WP_FREE')">📍 WP (Free)</button>
+                </div>
+                <p style="font-size: 0.75em; color: #666; margin: 5px 0 0 0;"><b>Snap</b> = Follows road. <b>Free</b> = Direct straight line. <b>WP</b> = Bus adjusts route but won't pause.</p>
             </div>
 
             <div class="section" id="route-creation-section">
@@ -123,13 +125,14 @@
 
             <div class="section" id="route-editor-section" style="display: none; border-color: #17a2b8;">
                 <div class="section-title" id="editor-title">Editing Route</div>
+                
                 <div class="form-group">
-                    <button class="tab-btn active-tab" id="btn-outbound">Outbound</button>
+                    <button class="tab-btn active-mode" id="btn-outbound">Outbound</button>
                     <button class="tab-btn" id="btn-inbound">Inbound</button>
                 </div>
                 
-                <p style="font-size: 0.8em; color: #666; margin: 5px 0;">Tap stops on map to connect. Change segment modes if pathfinding fails.</p>
-                <div id="current-route-stops" style="max-height: 180px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px;"></div>
+                <p style="font-size: 0.8em; color: #666; margin: 5px 0;">Tap stops/waypoints on map to connect.</p>
+                <div id="current-route-stops" style="max-height: 100px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px;"></div>
                 
                 <div style="background: #e9ecef; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
                     <div style="font-size: 0.85em; font-weight: bold; margin-bottom: 5px;">Timetable (Start Times)</div>
@@ -139,6 +142,7 @@
                     </div>
                     <div id="current-timetable-list" style="max-height: 80px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px;"></div>
                 </div>
+                
                 <div class="form-group">
                     <button class="danger-btn" id="btn-clear-direction">Clear Line</button>
                     <button id="btn-done-editing" style="flex:1;">Done Editing</button>
@@ -150,6 +154,7 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
+        // --- 1. Base Initialization ---
         const map = L.map('map', { zoomControl: false }).setView([22.3193, 114.1694], 14); 
         L.control.zoom({ position: 'topright' }).addTo(map);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
@@ -160,7 +165,7 @@
             else if (map.getZoom() >= 14 && !map.hasLayer(stopLayerGroup)) map.addLayer(stopLayerGroup);
         });
 
-        // --- Sim Engine ---
+        // --- 2. Simulation Variables ---
         let d = new Date();
         let gameTimeInSeconds = d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds(); 
         let activeBuses = [];
@@ -174,30 +179,39 @@
         function createBusIcon(color, routeId) {
             return L.divIcon({
                 className: 'bus-marker',
-                html: `<div style="background-color: ${color}; color: white; width: 28px; height: 16px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 1px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);">${routeId}</div>`,
-                iconSize: [28, 16],
-                iconAnchor: [14, 8]
+                html: `<div style="background-color: ${color}; color: white; width: 26px; height: 16px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 1px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);">${routeId}</div>`,
+                iconSize: [26, 16],
+                iconAnchor: [13, 8]
             });
         }
 
         class Bus {
             constructor(routeId, direction, simPath, color) {
-                this.routeId = routeId; this.simPath = simPath; this.pathIdx = 0;
-                this.state = 'DRIVING'; this.stopTimer = 0;
+                this.routeId = routeId;
+                this.simPath = simPath;
+                this.pathIdx = 0;
+                this.state = 'DRIVING'; 
+                this.stopTimer = 0;
                 this.exactPos = L.latLng(simPath[0].coord[1], simPath[0].coord[0]);
                 this.distanceToNext = map.distance(this.exactPos, L.latLng(simPath[1].coord[1], simPath[1].coord[0]));
+                
                 this.marker = L.marker(this.exactPos, { icon: createBusIcon(color, routeId), zIndexOffset: 1000 }).addTo(map);
+                this.marker.bindPopup(`<b>Route ${routeId}</b> (${direction})`);
             }
+
             advance(dt) {
                 if (this.state === 'FINISHED') return;
                 if (this.state === 'STOPPED') {
                     this.stopTimer -= dt;
-                    if (this.stopTimer <= 0) { this.state = 'DRIVING'; dt = -this.stopTimer; } else return;
+                    if (this.stopTimer <= 0) { this.state = 'DRIVING'; dt = -this.stopTimer; } 
+                    else return;
                 }
 
                 while (dt > 0 && this.state === 'DRIVING') {
                     let nextNode = this.simPath[this.pathIdx + 1];
-                    if (!nextNode) { this.state = 'FINISHED'; map.removeLayer(this.marker); return; }
+                    if (!nextNode) {
+                        this.state = 'FINISHED'; map.removeLayer(this.marker); return;
+                    }
 
                     let speed = this.simPath[this.pathIdx].speed; 
                     let travelDist = speed * dt;
@@ -208,17 +222,22 @@
                         let currNode = this.simPath[this.pathIdx];
                         this.exactPos = L.latLng(currNode.coord[1], currNode.coord[0]);
 
-                        if (currNode.isStop && !currNode.isEnd) {
-                            this.state = 'STOPPED';
-                            this.stopTimer = 5 + Math.random() * 15; 
-                            break; 
+                        // Check if we hit a mapped Stop (ignore waypoints)
+                        if (currNode.nodeId && !currNode.isEnd) {
+                            let nodeData = globalStops[currNode.nodeId];
+                            if (nodeData && nodeData.type === 'stop') {
+                                this.state = 'STOPPED';
+                                this.stopTimer = 5 + Math.random() * 15; 
+                                break; 
+                            }
                         }
 
                         if (this.pathIdx < this.simPath.length - 1) {
                             this.distanceToNext = map.distance(this.exactPos, L.latLng(this.simPath[this.pathIdx+1].coord[1], this.simPath[this.pathIdx+1].coord[0]));
-                        } else this.distanceToNext = 0;
+                        } else { this.distanceToNext = 0; }
                     } else {
-                        let p1 = this.exactPos; let p2 = L.latLng(nextNode.coord[1], nextNode.coord[0]);
+                        let p1 = this.exactPos;
+                        let p2 = L.latLng(nextNode.coord[1], nextNode.coord[0]);
                         let ratio = travelDist / this.distanceToNext;
                         this.exactPos = L.latLng(p1.lat + (p2.lat - p1.lat) * ratio, p1.lng + (p2.lng - p1.lng) * ratio);
                         this.distanceToNext -= travelDist;
@@ -229,15 +248,21 @@
             }
         }
 
+        // --- 3. Game Loop ---
         function gameLoop(now) {
-            let dtReal = (now - lastRealTime) / 1000; lastRealTime = now;
+            let dtReal = (now - lastRealTime) / 1000; 
+            lastRealTime = now;
             if (dtReal > 0.1) dtReal = 0.1; 
-            let dtGame = dtReal * parseFloat(document.getElementById('time-speed').value);
+            
+            let timeMultiplier = parseFloat(document.getElementById('time-speed').value);
+            let dtGame = dtReal * timeMultiplier;
             gameTimeInSeconds += dtGame;
             
             if (gameTimeInSeconds >= 86400) {
                 gameTimeInSeconds -= 86400;
-                for (let id in routes) ['outbound', 'inbound'].forEach(dir => { if (routes[id][dir].spawnedToday) routes[id][dir].spawnedToday.fill(false); });
+                for (let id in routes) {
+                    ['outbound', 'inbound'].forEach(dir => { if (routes[id][dir].spawnedToday) routes[id][dir].spawnedToday.fill(false); });
+                }
             }
 
             let h = Math.floor(gameTimeInSeconds / 3600).toString().padStart(2, '0');
@@ -252,144 +277,231 @@
                 ['outbound', 'inbound'].forEach(dir => {
                     let r = routes[id][dir];
                     if (!r.simPath || !r.spawnedToday) return; 
+                    
                     r.timetable.forEach((timeStr, idx) => {
                         let t = timeToSeconds(timeStr);
                         if (gameTimeInSeconds >= t && !r.spawnedToday[idx]) {
                             r.spawnedToday[idx] = true;
                             let bus = new Bus(id, dir, r.simPath, routes[id].color);
+                            
                             let catchUp = gameTimeInSeconds - t;
-                            while(catchUp > 0 && bus.state !== 'FINISHED') { let step = Math.min(60, catchUp); bus.advance(step); catchUp -= step; }
+                            while(catchUp > 0 && bus.state !== 'FINISHED') {
+                                let step = Math.min(60, catchUp);
+                                bus.advance(step); catchUp -= step;
+                            }
                             if (bus.state !== 'FINISHED') activeBuses.push(bus);
                         }
                     });
                 });
             }
+
             activeBuses.forEach(bus => bus.advance(dtGame));
             activeBuses = activeBuses.filter(b => b.state !== 'FINISHED'); 
+
             requestAnimationFrame(gameLoop);
         }
         requestAnimationFrame(gameLoop);
 
-        // --- System Logic ---
-        let globalStops = {}; let routes = {}; let appMode = 'IDLE'; 
-        let editingRouteId = null; let editingDirection = 'outbound'; let stopCounter = 1; let settingsTargetRoute = null; let panelIsCollapsed = false;
+        // --- 4. System States ---
+        let globalStops = {}; 
+        let routes = {};      
+        let appMode = 'IDLE'; 
+        let editingRouteId = null;
+        let editingDirection = 'outbound';
+        let nodeCounter = 1;
+        let settingsTargetRoute = null;
+        let panelIsCollapsed = false;
 
         function togglePanel() {
             panelIsCollapsed = !panelIsCollapsed;
-            const p = document.getElementById('ui-panel'); const a = document.getElementById('panel-arrow');
-            if (panelIsCollapsed) { p.classList.add('panel-collapsed'); a.innerText = '▲'; } else { p.classList.remove('panel-collapsed'); a.innerText = '▼'; }
+            const panel = document.getElementById('ui-panel');
+            const arrow = document.getElementById('panel-arrow');
+            if (panelIsCollapsed) { panel.classList.add('panel-collapsed'); arrow.innerText = '▲'; } 
+            else { panel.classList.remove('panel-collapsed'); arrow.innerText = '▼'; }
         }
 
-        // --- Save/Load System ---
+        // --- 5. Save/Load ---
         function getGameStateJSON() {
-            const sd = { stops: {}, routes: {} };
-            for (let id in globalStops) sd.stops[id] = { id: globalStops[id].id, name: globalStops[id].name, lat: globalStops[id].lat, lng: globalStops[id].lng };
+            const saveData = { stops: {}, routes: {} };
+            for (let id in globalStops) {
+                const s = globalStops[id];
+                saveData.stops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, type: s.type, mode: s.mode };
+            }
             for (let id in routes) {
                 const r = routes[id];
-                sd.routes[id] = {
+                saveData.routes[id] = {
                     group: r.group, color: r.color,
-                    outbound: { stopIds: [...r.outbound.stopIds], routingProfiles: [...(r.outbound.routingProfiles||[])], timetable: [...r.outbound.timetable] },
-                    inbound: { stopIds: [...r.inbound.stopIds], routingProfiles: [...(r.inbound.routingProfiles||[])], timetable: [...r.inbound.timetable] }
+                    outbound: { stopIds: [...r.outbound.stopIds], timetable: [...r.outbound.timetable] },
+                    inbound: { stopIds: [...r.inbound.stopIds], timetable: [...r.inbound.timetable] }
                 };
             }
-            return JSON.stringify(sd);
+            return JSON.stringify(saveData);
         }
 
         function applyGameStateJSON(jsonStr) {
-            const sd = JSON.parse(jsonStr);
-            stopLayerGroup.clearLayers(); activeBuses.forEach(b => map.removeLayer(b.marker)); activeBuses = [];
-            for (let id in routes) { if(routes[id].outbound.polylineLayer) map.removeLayer(routes[id].outbound.polylineLayer); if(routes[id].inbound.polylineLayer) map.removeLayer(routes[id].inbound.polylineLayer); }
+            const saveData = JSON.parse(jsonStr);
+            
+            stopLayerGroup.clearLayers();
+            activeBuses.forEach(b => map.removeLayer(b.marker));
+            activeBuses = [];
+            
+            for (let id in routes) {
+                if(routes[id].outbound.polylineLayer) map.removeLayer(routes[id].outbound.polylineLayer);
+                if(routes[id].inbound.polylineLayer) map.removeLayer(routes[id].inbound.polylineLayer);
+            }
             globalStops = {}; routes = {};
             
             let maxStopNum = 0;
-            for (let id in sd.stops) {
-                const s = sd.stops[id];
-                const marker = L.circleMarker([s.lat, s.lng], { radius: 7, fillColor: "#333", color: "#fff", weight: 2, fillOpacity: 1 }).addTo(stopLayerGroup);
-                globalStops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, marker: marker };
-                marker.on('click', () => handleStopClick(s.id));
-                bindStopPopup(marker, s.id, s.name);
+            for (let id in saveData.stops) {
+                const s = saveData.stops[id];
+                const type = s.type || 'stop';
+                const mode = s.mode || 'snap';
+                
+                const marker = createNodeMarker(s.lat, s.lng, type, mode).addTo(stopLayerGroup);
+                globalStops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, type: type, mode: mode, marker: marker };
+                marker.on('click', () => handleNodeClick(s.id));
+                bindNodePopup(marker, s.id, s.name, type, mode);
                 maxStopNum++; 
             }
-            stopCounter = maxStopNum + 1;
+            nodeCounter = maxStopNum + 1;
 
-            for (let id in sd.routes) {
-                const r = sd.routes[id];
+            for (let id in saveData.routes) {
+                const r = saveData.routes[id];
                 routes[id] = {
                     group: r.group, color: r.color,
-                    outbound: { stopIds: r.outbound.stopIds, routingProfiles: r.outbound.routingProfiles || [], timetable: r.outbound.timetable || [], polylineLayer: null },
-                    inbound: { stopIds: r.inbound.stopIds, routingProfiles: r.inbound.routingProfiles || [], timetable: r.inbound.timetable || [], polylineLayer: null }
+                    outbound: { stopIds: r.outbound.stopIds, timetable: r.outbound.timetable || [], polylineLayer: null },
+                    inbound: { stopIds: r.inbound.stopIds, timetable: r.inbound.timetable || [], polylineLayer: null }
                 };
                 drawRouteLine(id, 'outbound'); drawRouteLine(id, 'inbound');
             }
+            
             setMode('IDLE'); updateRouteListUI();
         }
 
         window.saveLocal = () => { localStorage.setItem('hkbus_save', getGameStateJSON()); alert("Saved!"); };
         window.loadLocal = () => { const s = localStorage.getItem('hkbus_save'); if(s) applyGameStateJSON(s); else alert("No save found!"); };
-        window.exportData = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([getGameStateJSON()], { type: "application/json" })); a.download = `hk_bus_save.json`; a.click(); };
-        window.importData = (e) => { const reader = new FileReader(); reader.onload = (ev) => { applyGameStateJSON(ev.target.result); e.target.value = ''; }; reader.readAsText(e.target.files[0]); };
+        window.exportData = () => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([getGameStateJSON()], { type: "application/json" }));
+            a.download = `hk_bus_save.json`; a.click();
+        };
+        window.importData = (e) => {
+            const reader = new FileReader();
+            reader.onload = (ev) => { applyGameStateJSON(ev.target.result); e.target.value = ''; };
+            reader.readAsText(e.target.files[0]);
+        };
 
-        // --- Core Editor Modes ---
+        // --- 6. Nodes & Map Interaction ---
         function setMode(mode) {
-            appMode = mode; map.getContainer().style.cursor = '';
-            document.getElementById('btn-build-stops').classList.remove('active-mode'); document.getElementById('btn-build-stops').innerText = "🏗️ Build Mode: Drop Stops on Map";
-
-            if (mode === 'IDLE') {
+            // Un-highlight all mode buttons
+            document.querySelectorAll('#mode-stop-snap, #mode-stop-free, #mode-wp-snap, #mode-wp-free').forEach(b => b.classList.remove('active-mode'));
+            
+            if (appMode === mode) {
+                appMode = 'IDLE'; // Toggle off
+                map.getContainer().style.cursor = '';
                 document.getElementById('header-text').innerText = "City Planner: Idle";
-                document.getElementById('route-creation-section').style.display = 'block'; document.getElementById('route-editor-section').style.display = 'none';
-            } else if (mode === 'BUILD_STOPS') {
-                document.getElementById('header-text').innerText = "City Planner: Building Stops";
-                document.getElementById('btn-build-stops').classList.add('active-mode'); document.getElementById('btn-build-stops').innerText = "🛑 Stop Building (Tap Map)";
-                map.getContainer().style.cursor = 'crosshair'; if (panelIsCollapsed) togglePanel(); 
-            } else if (mode === 'EDIT_ROUTE') {
-                document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
-                document.getElementById('route-creation-section').style.display = 'none'; document.getElementById('route-editor-section').style.display = 'block';
-                updateRouteEditorUI(); if (panelIsCollapsed) togglePanel();
+            } else {
+                appMode = mode;
+                if (mode === 'BUILD_STOP_SNAP') document.getElementById('mode-stop-snap').classList.add('active-mode');
+                if (mode === 'BUILD_STOP_FREE') document.getElementById('mode-stop-free').classList.add('active-mode');
+                if (mode === 'BUILD_WP_SNAP') document.getElementById('mode-wp-snap').classList.add('active-mode');
+                if (mode === 'BUILD_WP_FREE') document.getElementById('mode-wp-free').classList.add('active-mode');
+                
+                if (mode.startsWith('BUILD')) {
+                    map.getContainer().style.cursor = 'crosshair';
+                    document.getElementById('header-text').innerText = "City Planner: Placing Nodes";
+                    if (panelIsCollapsed) togglePanel(); 
+                } else if (mode === 'EDIT_ROUTE') {
+                    document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
+                    document.getElementById('route-creation-section').style.display = 'none';
+                    document.getElementById('route-editor-section').style.display = 'block';
+                    updateRouteEditorUI();
+                    if (panelIsCollapsed) togglePanel();
+                }
+            }
+
+            if (!mode.startsWith('BUILD') && mode !== 'EDIT_ROUTE') {
+                document.getElementById('route-creation-section').style.display = 'block';
+                document.getElementById('route-editor-section').style.display = 'none';
             }
         }
 
-        document.getElementById('btn-build-stops').addEventListener('click', () => setMode(appMode === 'BUILD_STOPS' ? 'IDLE' : 'BUILD_STOPS'));
         document.getElementById('btn-done-editing').addEventListener('click', () => setMode('IDLE'));
 
-        map.on('click', async (e) => {
-            if (appMode !== 'BUILD_STOPS') return;
-            // Retrieve chosen snapping profile (driving vs foot)
-            const snapMode = document.getElementById('stop-snap-mode').value;
-            const res = await fetch(`https://router.project-osrm.org/nearest/v1/${snapMode}/${e.latlng.lng},${e.latlng.lat}`);
-            const data = await res.json();
-            if (data.code === 'Ok') {
-                const stopId = 'stop_' + Date.now(); const stopName = `Stop ${stopCounter++}`;
-                const marker = L.circleMarker([data.waypoints[0].location[1], data.waypoints[0].location[0]], { radius: 7, fillColor: "#333", color: "#fff", weight: 2, fillOpacity: 1 }).addTo(stopLayerGroup);
-                globalStops[stopId] = { id: stopId, name: stopName, lat: marker.getLatLng().lat, lng: marker.getLatLng().lng, marker: marker };
-                marker.on('click', () => handleStopClick(stopId)); bindStopPopup(marker, stopId, stopName);
-            }
-        });
+        function createNodeMarker(lat, lng, type, mode) {
+            let radius = type === 'stop' ? 7 : 4;
+            let fillColor = '#333'; // Default Snap
+            if (mode === 'free' && type === 'stop') fillColor = '#007bff';
+            if (mode === 'snap' && type === 'waypoint') fillColor = '#6c757d';
+            if (mode === 'free' && type === 'waypoint') fillColor = '#17a2b8';
 
-        function handleStopClick(stopId) {
-            if (appMode === 'EDIT_ROUTE') {
-                const dirData = routes[editingRouteId][editingDirection];
-                if (dirData.stopIds[dirData.stopIds.length - 1] === stopId) return;
-                
-                dirData.stopIds.push(stopId);
-                if (!dirData.routingProfiles) dirData.routingProfiles = [];
-                if (dirData.stopIds.length > 1) dirData.routingProfiles.push('driving'); // Default new segment to driving
-
-                updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection);
-            } else { globalStops[stopId].marker.openPopup(); }
+            return L.circleMarker([lat, lng], { radius: radius, fillColor: fillColor, color: "#fff", weight: 2, fillOpacity: 1 });
         }
 
-        function bindStopPopup(marker, stopId, currentName) { marker.bindPopup(`<div class="stop-popup"><strong>Manage Stop</strong><br><input type="text" id="input-${stopId}" value="${currentName}"><br><button onclick="renameGlobalStop('${stopId}')">Save</button> <button class="danger-btn" onclick="deleteGlobalStop('${stopId}')">Delete</button></div>`); }
-        window.renameGlobalStop = function(stopId) { globalStops[stopId].name = document.getElementById(`input-${stopId}`).value; bindStopPopup(globalStops[stopId].marker, stopId, globalStops[stopId].name); globalStops[stopId].marker.closePopup(); if (appMode === 'EDIT_ROUTE') updateRouteEditorUI(); };
-        window.deleteGlobalStop = function(stopId) { stopLayerGroup.removeLayer(globalStops[stopId].marker); delete globalStops[stopId]; for (let routeId in routes) { ['outbound', 'inbound'].forEach(dir => { let idx = routes[routeId][dir].stopIds.indexOf(stopId); if(idx > -1) window.removeStopFromRouteInner(routeId, dir, idx); }); } if (appMode === 'EDIT_ROUTE') updateRouteEditorUI(); };
+        map.on('click', async (e) => {
+            if (!appMode.startsWith('BUILD')) return;
+            
+            let isStop = appMode.includes('STOP');
+            let isSnap = appMode.includes('SNAP');
+            let lat = e.latlng.lat, lng = e.latlng.lng;
 
-        // --- Route & Groups UI ---
+            if (isSnap) {
+                const res = await fetch(`https://router.project-osrm.org/nearest/v1/driving/${lng},${lat}`);
+                const data = await res.json();
+                if (data.code === 'Ok') { lat = data.waypoints[0].location[1]; lng = data.waypoints[0].location[0]; }
+            }
+
+            const nodeId = 'node_' + Date.now();
+            const nodeName = isStop ? `Stop ${nodeCounter++}` : `Waypoint ${nodeCounter++}`;
+            const marker = createNodeMarker(lat, lng, isStop ? 'stop' : 'waypoint', isSnap ? 'snap' : 'free').addTo(stopLayerGroup);
+            
+            globalStops[nodeId] = { id: nodeId, name: nodeName, lat: lat, lng: lng, type: isStop ? 'stop' : 'waypoint', mode: isSnap ? 'snap' : 'free', marker: marker };
+            marker.on('click', () => handleNodeClick(nodeId));
+            bindNodePopup(marker, nodeId, nodeName, isStop ? 'stop' : 'waypoint', isSnap ? 'snap' : 'free');
+        });
+
+        function handleNodeClick(nodeId) {
+            if (appMode === 'EDIT_ROUTE') {
+                const dirData = routes[editingRouteId][editingDirection];
+                if (dirData.stopIds[dirData.stopIds.length - 1] === nodeId) return;
+                dirData.stopIds.push(nodeId);
+                updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection);
+            } else { globalStops[nodeId].marker.openPopup(); }
+        }
+
+        function bindNodePopup(marker, nodeId, currentName, type, mode) {
+            let typeLabel = type === 'stop' ? '🚏 Stop' : '📍 Waypoint';
+            let modeLabel = mode === 'snap' ? 'Road Snap' : 'Free Place';
+            marker.bindPopup(`<div class="stop-popup"><strong style="font-size:0.85em; color:#666;">${typeLabel} (${modeLabel})</strong><br><input type="text" id="input-${nodeId}" value="${currentName}"><br><button onclick="renameNode('${nodeId}')">Save</button> <button class="danger-btn" onclick="deleteNode('${nodeId}')">Delete</button></div>`);
+        }
+
+        window.renameNode = function(nodeId) {
+            let n = globalStops[nodeId];
+            n.name = document.getElementById(`input-${nodeId}`).value;
+            bindNodePopup(n.marker, nodeId, n.name, n.type, n.mode); n.marker.closePopup();
+            if (appMode === 'EDIT_ROUTE') updateRouteEditorUI();
+        };
+
+        window.deleteNode = function(nodeId) {
+            stopLayerGroup.removeLayer(globalStops[nodeId].marker); delete globalStops[nodeId];
+            for (let routeId in routes) {
+                ['outbound', 'inbound'].forEach(dir => {
+                    routes[routeId][dir].stopIds = routes[routeId][dir].stopIds.filter(id => id !== nodeId);
+                    drawRouteLine(routeId, dir); 
+                });
+            }
+            if (appMode === 'EDIT_ROUTE') updateRouteEditorUI();
+        };
+
+        // --- 7. Route UI ---
         document.getElementById('btn-create-route').addEventListener('click', () => {
             const routeNum = document.getElementById('route-number').value.trim();
             if (!routeNum || routes[routeNum]) return;
             routes[routeNum] = {
-                group: document.getElementById('route-group').value.trim() || "Uncategorized", color: document.getElementById('route-color').value,
-                outbound: { stopIds: [], routingProfiles: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [] },
-                inbound: { stopIds: [], routingProfiles: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [] }
+                group: document.getElementById('route-group').value.trim() || "Uncategorized", 
+                color: document.getElementById('route-color').value,
+                outbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [] },
+                inbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [] }
             };
             document.getElementById('route-number').value = ''; updateRouteListUI();
         });
@@ -399,77 +511,57 @@
         function updateRouteListUI() {
             const list = document.getElementById('route-list'); list.innerHTML = '';
             const grouped = {};
-            for (let [id, data] of Object.entries(routes)) { if (!grouped[data.group]) grouped[data.group] = []; grouped[data.group].push({ id, ...data }); }
+            for (let [id, data] of Object.entries(routes)) {
+                if (!grouped[data.group]) grouped[data.group] = [];
+                grouped[data.group].push({ id, ...data });
+            }
             for (let group in grouped) {
                 const groupDiv = document.createElement('div'); groupDiv.className = 'route-group';
                 groupDiv.innerHTML = `<div class="group-title" onclick="toggleGroup(this)"><span>${group}</span><span class="group-arrow">▼</span></div><div class="group-content"></div>`;
-                grouped[group].forEach(r => { groupDiv.querySelector('.group-content').innerHTML += `<div class="route-item"><div style="flex:1;"><span style="color:${r.color};">⬤</span> <strong>${r.id}</strong></div><button onclick="openEditSettings('${r.id}')" style="background:#ffc107; color:black; margin-right:5px; padding:6px;">⚙️</button><button onclick="startEditingRoute('${r.id}')">Edit</button></div>`; });
+                grouped[group].forEach(r => {
+                    groupDiv.querySelector('.group-content').innerHTML += `<div class="route-item"><div style="flex:1;"><span style="color:${r.color};">⬤</span> <strong>${r.id}</strong></div><button onclick="openEditSettings('${r.id}')" style="background:#ffc107; color:black; margin-right:5px; padding:6px;">⚙️</button><button onclick="startEditingRoute('${r.id}')">Edit</button></div>`;
+                });
                 list.appendChild(groupDiv);
             }
         }
 
-        window.openEditSettings = function(id) { settingsTargetRoute = id; document.getElementById('edit-route-group').value = routes[id].group; document.getElementById('edit-route-color').value = routes[id].color; document.getElementById('edit-settings-modal').style.display = 'flex'; };
+        window.openEditSettings = function(id) {
+            settingsTargetRoute = id;
+            document.getElementById('edit-route-group').value = routes[id].group;
+            document.getElementById('edit-route-color').value = routes[id].color;
+            document.getElementById('edit-settings-modal').style.display = 'flex';
+        };
         window.closeEditSettings = function() { document.getElementById('edit-settings-modal').style.display = 'none'; };
-        window.saveRouteSettings = function() { routes[settingsTargetRoute].group = document.getElementById('edit-route-group').value.trim() || "Uncategorized"; routes[settingsTargetRoute].color = document.getElementById('edit-route-color').value; drawRouteLine(settingsTargetRoute, 'outbound'); drawRouteLine(settingsTargetRoute, 'inbound'); updateRouteListUI(); closeEditSettings(); };
+        window.saveRouteSettings = function() {
+            routes[settingsTargetRoute].group = document.getElementById('edit-route-group').value.trim() || "Uncategorized";
+            routes[settingsTargetRoute].color = document.getElementById('edit-route-color').value;
+            drawRouteLine(settingsTargetRoute, 'outbound'); drawRouteLine(settingsTargetRoute, 'inbound');
+            updateRouteListUI(); closeEditSettings();
+        };
 
-        // --- Route Editor & Advanced Segments ---
         window.startEditingRoute = function(id) { editingRouteId = id; setMode('EDIT_ROUTE'); };
 
-        document.getElementById('btn-outbound').addEventListener('click', (e) => { editingDirection = 'outbound'; e.target.classList.add('active-tab'); document.getElementById('btn-inbound').classList.remove('active-tab'); updateRouteEditorUI(); });
-        document.getElementById('btn-inbound').addEventListener('click', (e) => { editingDirection = 'inbound'; e.target.classList.add('active-tab'); document.getElementById('btn-outbound').classList.remove('active-tab'); updateRouteEditorUI(); });
+        document.getElementById('btn-outbound').addEventListener('click', (e) => { editingDirection = 'outbound'; e.target.classList.add('active-mode'); document.getElementById('btn-inbound').classList.remove('active-mode'); updateRouteEditorUI(); });
+        document.getElementById('btn-inbound').addEventListener('click', (e) => { editingDirection = 'inbound'; e.target.classList.add('active-mode'); document.getElementById('btn-outbound').classList.remove('active-mode'); updateRouteEditorUI(); });
 
         function updateRouteEditorUI() {
             if (!editingRouteId) return;
             const dirData = routes[editingRouteId][editingDirection];
             const stopDiv = document.getElementById('current-route-stops');
-            stopDiv.innerHTML = dirData.stopIds.length === 0 ? '<div style="padding:10px; color:#999; text-align:center;">No stops connected.</div>' : '';
-            
+            stopDiv.innerHTML = dirData.stopIds.length === 0 ? '<div style="padding:10px; color:#999; text-align:center;">No nodes connected.</div>' : '';
             dirData.stopIds.forEach((id, idx) => {
-                if(globalStops[id]) {
-                    stopDiv.innerHTML += `<div class="stop-list-item"><span>${idx+1}. ${globalStops[id].name}</span><button style="padding:2px 5px; background:#dc3545;" onclick="removeStopFromRouteUI(${idx})">X</button></div>`;
-                    
-                    // Render the segment controller if it's not the last stop
-                    if (idx < dirData.stopIds.length - 1) {
-                        let profile = dirData.routingProfiles[idx] || 'driving';
-                        stopDiv.innerHTML += `
-                        <div class="segment-editor">
-                            ↳ Link Mode:
-                            <select onchange="changeSegmentProfile(${idx}, this.value)" style="width: auto; padding: 2px; font-size: 0.9em; height: 25px;">
-                                <option value="driving" ${profile==='driving'?'selected':''}>🚗 Normal Driving</option>
-                                <option value="foot" ${profile==='foot'?'selected':''}>🚶 Terminus / Path</option>
-                                <option value="straight" ${profile==='straight'?'selected':''}>📏 Straight Line</option>
-                            </select>
-                        </div>`;
-                    }
-                }
+                if(globalStops[id]) stopDiv.innerHTML += `<div class="stop-list-item"><span>${idx+1}. ${globalStops[id].name} <span style="color:#aaa;font-size:0.8em">(${globalStops[id].type})</span></span><button style="padding:2px 5px; background:#dc3545;" onclick="removeNodeFromRoute(${idx})">X</button></div>`;
             });
 
             const timeDiv = document.getElementById('current-timetable-list');
             timeDiv.innerHTML = dirData.timetable.length === 0 ? '<div style="padding:5px; color:#999; text-align:center; font-size:0.85em;">No times set.</div>' : '';
-            dirData.timetable.forEach((time, idx) => { timeDiv.innerHTML += `<div class="time-list-item"><span>🕒 ${time}</span><button style="padding:2px 5px; background:#dc3545;" onclick="removeTimetableEntry(${idx})">X</button></div>`; });
+            dirData.timetable.forEach((time, idx) => {
+                timeDiv.innerHTML += `<div class="time-list-item"><span>🕒 ${time}</span><button style="padding:2px 5px; background:#dc3545;" onclick="removeTimetableEntry(${idx})">X</button></div>`;
+            });
         }
 
-        window.changeSegmentProfile = function(index, mode) {
-            routes[editingRouteId][editingDirection].routingProfiles[index] = mode;
-            drawRouteLine(editingRouteId, editingDirection);
-        };
-
-        window.removeStopFromRouteInner = function(routeId, dir, index) {
-            const dirData = routes[routeId][dir];
-            dirData.stopIds.splice(index, 1);
-            if (dirData.routingProfiles && dirData.routingProfiles.length > 0) {
-                if (index === 0) dirData.routingProfiles.shift();
-                else dirData.routingProfiles.splice(index - 1, 1);
-            }
-            drawRouteLine(routeId, dir);
-        }
-
-        window.removeStopFromRouteUI = function(index) { 
-            removeStopFromRouteInner(editingRouteId, editingDirection, index); 
-            updateRouteEditorUI(); 
-        };
-        
-        document.getElementById('btn-clear-direction').addEventListener('click', () => { if(confirm("Clear stops?")) { routes[editingRouteId][editingDirection].stopIds = []; routes[editingRouteId][editingDirection].routingProfiles = []; updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection); }});
+        window.removeNodeFromRoute = function(index) { routes[editingRouteId][editingDirection].stopIds.splice(index, 1); updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection); };
+        document.getElementById('btn-clear-direction').addEventListener('click', () => { if(confirm("Clear route nodes?")) { routes[editingRouteId][editingDirection].stopIds = []; updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection); }});
 
         window.addTimetableEntry = function() {
             const timeInput = document.getElementById('new-timetable-time').value;
@@ -481,73 +573,62 @@
         }
         window.removeTimetableEntry = function(index) { routes[editingRouteId][editingDirection].timetable.splice(index, 1); routes[editingRouteId][editingDirection].spawnedToday.splice(index, 1); updateRouteEditorUI(); }
 
-        // --- Per-Segment Pathfinding Engine & Speed Math ---
+        // --- 8. Segment-by-Segment Pathfinding Engine ---
         async function drawRouteLine(routeId, direction) {
             const dirData = routes[routeId][direction];
-            if (dirData.polylineLayer) { map.removeLayer(dirData.polylineLayer); dirData.polylineLayer = null; }
+            if (dirData.polylineLayer) { map.removeLayer(dirData.polylineLayer); }
             dirData.simPath = null;
             
-            if (!dirData.routingProfiles) dirData.routingProfiles = Array(Math.max(0, dirData.stopIds.length - 1)).fill('driving');
             if (dirData.stopIds.length < 2) return; 
 
-            let fullSimPath = [];
-            let segmentLayers = [];
-            const isOutbound = direction === 'outbound';
-            const lineStyle = { color: routes[routeId].color, weight: isOutbound ? 5 : 4, opacity: isOutbound ? 0.9 : 0.6, dashArray: isOutbound ? null : '5, 10' };
+            let simPath = [];
+            let polylines = L.featureGroup().addTo(map);
+            let routeColor = routes[routeId].color;
+            let isOutbound = direction === 'outbound';
+            let lineStyle = { color: routeColor, weight: isOutbound ? 5 : 4, opacity: isOutbound ? 0.9 : 0.6, dashArray: isOutbound ? null : '5, 10' };
 
-            // Process route sequentially per segment to respect user overrides
             for (let i = 0; i < dirData.stopIds.length - 1; i++) {
-                let s1 = globalStops[dirData.stopIds[i]];
-                let s2 = globalStops[dirData.stopIds[i+1]];
-                if(!s1 || !s2) continue;
+                let n1 = globalStops[dirData.stopIds[i]];
+                let n2 = globalStops[dirData.stopIds[i+1]];
                 
-                let profile = dirData.routingProfiles[i] || 'driving';
+                // 1. Always push the exact node at the start of its segment, marked with its ID
+                simPath.push({ coord: [n1.lng, n1.lat], speed: 13.88, nodeId: n1.id });
 
-                if (profile === 'straight') {
-                    segmentLayers.push(L.polyline([[s1.lat, s1.lng], [s2.lat, s2.lng]], lineStyle));
-                    fullSimPath.push({ coord: [s1.lng, s1.lat], speed: 8.33, isStop: false }); // 30km/h
-                    fullSimPath.push({ coord: [s2.lng, s2.lat], speed: 8.33, isStop: true }); 
+                if (n1.mode === 'free' || n2.mode === 'free') {
+                    // Straight Line Fallback for Free nodes
+                    L.polyline([[n1.lat, n1.lng], [n2.lat, n2.lng]], lineStyle).addTo(polylines);
                 } else {
-                    const url = `https://router.project-osrm.org/route/v1/${profile}/${s1.lng},${s1.lat};${s2.lng},${s2.lat}?geometries=geojson&overview=full&steps=true`;
+                    // OSRM Request for Snapped segments
                     try {
-                        const response = await fetch(url);
-                        const data = await response.json();
+                        let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${n1.lng},${n1.lat};${n2.lng},${n2.lat}?geometries=geojson&steps=true`);
+                        let data = await res.json();
                         if (data.code === 'Ok') {
-                            segmentLayers.push(L.geoJSON(data.routes[0].geometry, { style: lineStyle, interactive: false }));
-
+                            L.geoJSON(data.routes[0].geometry, { style: lineStyle, interactive: false }).addTo(polylines);
+                            
                             data.routes[0].legs[0].steps.forEach((step) => {
-                                // STRICT SPEED CLAMPING PHYSICS
-                                let rawSpeedMs = step.duration > 0 ? (step.distance / step.duration) : 13.88;
-                                let rawKmh = rawSpeedMs * 3.6;
+                                // Fix: Lowered Highway Trigger Threshold to 11m/s (~40km/h)
+                                let calcSpeed = step.duration > 0 ? (step.distance / step.duration) : 0;
+                                let simSpeed = (calcSpeed > 11) ? 19.44 : 13.88; 
                                 
-                                let finalKmh = 50; // Standard City Speed
-                                if (rawKmh >= 55) finalKmh = 70; // Fast Highways / Tunnels
-                                else if (rawKmh <= 30) finalKmh = 30; // Small Turns / Traffic
-                                
-                                let simSpeed = finalKmh / 3.6; // Convert back to m/s
-                                
-                                step.geometry.coordinates.forEach((coord, idx, arr) => {
-                                    if (idx < arr.length - 1) fullSimPath.push({ coord: coord, speed: simSpeed, isStop: false });
+                                step.geometry.coordinates.forEach((coord, coordIdx) => {
+                                    // Skip first and last coordinate of the OSRM geometry so we don't duplicate N1 or accidentally push N2 early
+                                    if (coordIdx === 0 && step === data.routes[0].legs[0].steps[0]) return;
+                                    if (coordIdx === step.geometry.coordinates.length - 1 && step === data.routes[0].legs[0].steps[data.routes[0].legs[0].steps.length-1]) return;
+                                    
+                                    simPath.push({ coord: coord, speed: simSpeed, nodeId: null });
                                 });
                             });
-                            // Push the destination of this segment as a Stop
-                            let lastStep = data.routes[0].legs[0].steps.slice(-1)[0];
-                            let lastCoord = lastStep.geometry.coordinates.slice(-1)[0];
-                            fullSimPath.push({ coord: lastCoord, speed: 13.88, isStop: true });
                         }
-                    } catch (error) { console.error("Segment Routing error:", error); }
+                    } catch (err) { console.error("OSRM segment failed", err); }
                 }
             }
+            
+            // 2. Push the final destination node
+            let lastNode = globalStops[dirData.stopIds[dirData.stopIds.length - 1]];
+            simPath.push({ coord: [lastNode.lng, lastNode.lat], speed: 13.88, nodeId: lastNode.id, isEnd: true });
 
-            if (segmentLayers.length > 0) {
-                dirData.polylineLayer = L.featureGroup(segmentLayers).addTo(map);
-            }
-            
-            if (fullSimPath.length > 0) {
-                fullSimPath[fullSimPath.length - 1].isEnd = true; // Mark final destination to despawn
-            }
-            
-            dirData.simPath = fullSimPath;
+            dirData.simPath = simPath;
+            dirData.polylineLayer = polylines;
             dirData.spawnedToday = dirData.timetable.map(() => false);
         }
     </script>
