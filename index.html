@@ -129,8 +129,13 @@
                     <button class="tab-btn active-mode" id="btn-outbound">Outbound</button>
                     <button class="tab-btn" id="btn-inbound">Inbound</button>
                 </div>
+
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <button id="btn-add-light" class="tab-btn" onclick="toggleLightPlacement()">🚦 Place Traffic Light</button>
+                    <button class="danger-btn" onclick="clearTrafficLights()">Clear Lights</button>
+                </div>
                 
-                <p style="font-size: 0.8em; color: #666; margin: 5px 0;">Tap stops/waypoints on map to connect.</p>
+                <p style="font-size: 0.8em; color: #666; margin: 5px 0;">Tap stops on map to connect. Click Place Traffic Light to add stops.</p>
                 <div id="current-route-stops" style="max-height: 100px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px;"></div>
                 
                 <div style="background: #e9ecef; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
@@ -162,6 +167,7 @@
         L.control.zoom({ position: 'topright' }).addTo(map);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
         const stopLayerGroup = L.layerGroup().addTo(map);
+        const currentRouteLightsGroup = L.layerGroup().addTo(map); // Visual Layer for manual lights
 
         map.on('zoomend', () => {
             if (map.getZoom() < 14 && map.hasLayer(stopLayerGroup)) map.removeLayer(stopLayerGroup);
@@ -195,7 +201,7 @@
                 this.pathIdx = 0;
                 this.state = 'DRIVING'; 
                 this.stopTimer = 0;
-                this.justStoppedAtLight = false; // NEW: Prevents multi-stopping at the same intersection
+                this.justStoppedAtLight = false; 
                 this.exactPos = L.latLng(simPath[0].coord[1], simPath[0].coord[0]);
                 this.distanceToNext = map.distance(this.exactPos, L.latLng(simPath[1].coord[1], simPath[1].coord[0]));
                 
@@ -226,7 +232,6 @@
                         let currNode = this.simPath[this.pathIdx];
                         this.exactPos = L.latLng(currNode.coord[1], currNode.coord[0]);
 
-                        // Check if we hit a mapped Stop or a Real Traffic Light
                         if (currNode.nodeId && !currNode.isEnd) {
                             let nodeData = globalStops[currNode.nodeId];
                             if (nodeData && nodeData.type === 'stop') {
@@ -236,17 +241,15 @@
                                 break; 
                             }
                         } else if (currNode.isTrafficLight) {
-                            // Hit a traffic light node. Check if we haven't already stopped here.
                             if (!this.justStoppedAtLight) {
                                 this.justStoppedAtLight = true;
-                                if (Math.random() < 0.60) { // 60% chance to catch a red light
+                                if (Math.random() < 0.85) { // 85% chance to hit a red light
                                     this.state = 'STOPPED';
-                                    this.stopTimer = 10 + Math.random() * 20; 
+                                    this.stopTimer = 10 + Math.random() * 15; 
                                     break;
                                 }
                             }
                         } else {
-                            // Normal road piece, reset the light flag so we can stop at the NEXT intersection
                             this.justStoppedAtLight = false;
                         }
 
@@ -265,6 +268,7 @@
                 this.marker.setLatLng(this.exactPos);
             }
         }
+
         // --- 3. Game Loop ---
         function gameLoop(now) {
             let dtReal = (now - lastRealTime) / 1000; 
@@ -328,6 +332,7 @@
         let nodeCounter = 1;
         let settingsTargetRoute = null;
         let panelIsCollapsed = false;
+        let placingTrafficLight = false;
 
         function togglePanel() {
             panelIsCollapsed = !panelIsCollapsed;
@@ -344,13 +349,12 @@
                 const s = globalStops[id];
                 saveData.stops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, type: s.type, mode: s.mode };
             }
-            // Saving simPath directly stops the load times from lagging!
             for (let id in routes) {
                 const r = routes[id];
                 saveData.routes[id] = {
                     group: r.group, color: r.color,
-                    outbound: { stopIds: [...r.outbound.stopIds], timetable: [...r.outbound.timetable], simPath: r.outbound.simPath },
-                    inbound: { stopIds: [...r.inbound.stopIds], timetable: [...r.inbound.timetable], simPath: r.inbound.simPath }
+                    outbound: { stopIds: [...r.outbound.stopIds], timetable: [...r.outbound.timetable], simPath: r.outbound.simPath, manualLights: r.outbound.manualLights },
+                    inbound: { stopIds: [...r.inbound.stopIds], timetable: [...r.inbound.timetable], simPath: r.inbound.simPath, manualLights: r.inbound.manualLights }
                 };
             }
             return JSON.stringify(saveData);
@@ -360,6 +364,7 @@
             const saveData = JSON.parse(jsonStr);
             
             stopLayerGroup.clearLayers();
+            currentRouteLightsGroup.clearLayers();
             activeBuses.forEach(b => map.removeLayer(b.marker));
             activeBuses = [];
             
@@ -372,13 +377,10 @@
             let maxStopNum = 0;
             for (let id in saveData.stops) {
                 const s = saveData.stops[id];
-                const type = s.type || 'stop';
-                const mode = s.mode || 'snap';
-                
-                const marker = createNodeMarker(s.lat, s.lng, type, mode).addTo(stopLayerGroup);
-                globalStops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, type: type, mode: mode, marker: marker };
+                const marker = createNodeMarker(s.lat, s.lng, s.type, s.mode).addTo(stopLayerGroup);
+                globalStops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, type: s.type, mode: s.mode, marker: marker };
                 marker.on('click', () => handleNodeClick(s.id));
-                bindNodePopup(marker, s.id, s.name, type, mode);
+                bindNodePopup(marker, s.id, s.name, s.type, s.mode);
                 maxStopNum++; 
             }
             nodeCounter = maxStopNum + 1;
@@ -387,11 +389,10 @@
                 const r = saveData.routes[id];
                 routes[id] = {
                     group: r.group, color: r.color,
-                    outbound: { stopIds: r.outbound.stopIds, timetable: r.outbound.timetable || [], polylineLayer: null, simPath: r.outbound.simPath },
-                    inbound: { stopIds: r.inbound.stopIds, timetable: r.inbound.timetable || [], polylineLayer: null, simPath: r.inbound.simPath }
+                    outbound: { stopIds: r.outbound.stopIds, timetable: r.outbound.timetable || [], polylineLayer: null, simPath: r.outbound.simPath, manualLights: r.outbound.manualLights || [] },
+                    inbound: { stopIds: r.inbound.stopIds, timetable: r.inbound.timetable || [], polylineLayer: null, simPath: r.inbound.simPath, manualLights: r.inbound.manualLights || [] }
                 };
                 
-                // Instantly Draw saved paths without API calls!
                 if (routes[id].outbound.simPath) renderRouteLineFromSimPath(id, 'outbound');
                 else drawRouteLine(id, 'outbound'); 
                 
@@ -418,11 +419,13 @@
         // --- 6. Nodes & Map Interaction ---
         function setMode(mode) {
             document.querySelectorAll('#mode-stop-snap, #mode-stop-free, #mode-wp-snap, #mode-wp-free').forEach(b => b.classList.remove('active-mode'));
+            if(placingTrafficLight) toggleLightPlacement(); 
             
             if (appMode === mode) {
                 appMode = 'IDLE';
                 map.getContainer().style.cursor = '';
                 document.getElementById('header-text').innerText = "City Planner: Idle";
+                currentRouteLightsGroup.clearLayers();
             } else {
                 appMode = mode;
                 if (mode === 'BUILD_STOP_SNAP') document.getElementById('mode-stop-snap').classList.add('active-mode');
@@ -434,11 +437,13 @@
                     map.getContainer().style.cursor = 'crosshair';
                     document.getElementById('header-text').innerText = "City Planner: Placing Nodes";
                     if (panelIsCollapsed) togglePanel(); 
+                    currentRouteLightsGroup.clearLayers();
                 } else if (mode === 'EDIT_ROUTE') {
                     document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
                     document.getElementById('route-creation-section').style.display = 'none';
                     document.getElementById('route-editor-section').style.display = 'block';
                     updateRouteEditorUI();
+                    renderTrafficLightsUI();
                     if (panelIsCollapsed) togglePanel();
                 }
             }
@@ -462,6 +467,19 @@
         }
 
         map.on('click', async (e) => {
+            // New logic: Placing traffic lights
+            if (appMode === 'EDIT_ROUTE' && placingTrafficLight) {
+                const dirData = routes[editingRouteId][editingDirection];
+                if (!dirData.simPath || dirData.simPath.length === 0) {
+                    alert("Draw the route first by connecting stops."); return;
+                }
+                if (!dirData.manualLights) dirData.manualLights = [];
+                dirData.manualLights.push({lat: e.latlng.lat, lng: e.latlng.lng});
+                applyLightsToSimPath(editingRouteId, editingDirection);
+                renderTrafficLightsUI();
+                return;
+            }
+
             if (!appMode.startsWith('BUILD')) return;
             
             let isStop = appMode.includes('STOP');
@@ -484,12 +502,14 @@
         });
 
         function handleNodeClick(nodeId) {
-            if (appMode === 'EDIT_ROUTE') {
+            if (appMode === 'EDIT_ROUTE' && !placingTrafficLight) {
                 const dirData = routes[editingRouteId][editingDirection];
                 if (dirData.stopIds[dirData.stopIds.length - 1] === nodeId) return;
                 dirData.stopIds.push(nodeId);
                 updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection);
-            } else { globalStops[nodeId].marker.openPopup(); }
+            } else if (appMode !== 'EDIT_ROUTE') { 
+                globalStops[nodeId].marker.openPopup(); 
+            }
         }
 
         function bindNodePopup(marker, nodeId, currentName, type, mode) {
@@ -523,8 +543,8 @@
             routes[routeNum] = {
                 group: document.getElementById('route-group').value.trim() || "Uncategorized", 
                 color: document.getElementById('route-color').value,
-                outbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [] },
-                inbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [] }
+                outbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [], manualLights: [] },
+                inbound: { stopIds: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [], manualLights: [] }
             };
             document.getElementById('route-number').value = ''; updateRouteListUI();
         });
@@ -565,8 +585,8 @@
 
         window.startEditingRoute = function(id) { editingRouteId = id; setMode('EDIT_ROUTE'); };
 
-        document.getElementById('btn-outbound').addEventListener('click', (e) => { editingDirection = 'outbound'; e.target.classList.add('active-mode'); document.getElementById('btn-inbound').classList.remove('active-mode'); updateRouteEditorUI(); });
-        document.getElementById('btn-inbound').addEventListener('click', (e) => { editingDirection = 'inbound'; e.target.classList.add('active-mode'); document.getElementById('btn-outbound').classList.remove('active-mode'); updateRouteEditorUI(); });
+        document.getElementById('btn-outbound').addEventListener('click', (e) => { editingDirection = 'outbound'; e.target.classList.add('active-mode'); document.getElementById('btn-inbound').classList.remove('active-mode'); updateRouteEditorUI(); renderTrafficLightsUI(); });
+        document.getElementById('btn-inbound').addEventListener('click', (e) => { editingDirection = 'inbound'; e.target.classList.add('active-mode'); document.getElementById('btn-outbound').classList.remove('active-mode'); updateRouteEditorUI(); renderTrafficLightsUI(); });
 
         function updateRouteEditorUI() {
             if (!editingRouteId) return;
@@ -591,13 +611,12 @@
             const timeInput = document.getElementById('new-timetable-time').value;
             if(!timeInput) return;
             const tArray = routes[editingRouteId][editingDirection].timetable;
-            tArray.push(timeInput); // Removed restriction to allow multiple
+            tArray.push(timeInput);
             tArray.sort(); 
             routes[editingRouteId][editingDirection].spawnedToday = tArray.map(() => false); 
             document.getElementById('new-timetable-time').value = ''; updateRouteEditorUI();
         }
 
-        // New Auto Gen function
         window.generateTimetable = function() {
             let interval = parseInt(document.getElementById('gen-interval').value);
             if(isNaN(interval) || interval <= 0) return;
@@ -614,6 +633,76 @@
         }
 
         window.removeTimetableEntry = function(index) { routes[editingRouteId][editingDirection].timetable.splice(index, 1); routes[editingRouteId][editingDirection].spawnedToday.splice(index, 1); updateRouteEditorUI(); }
+
+        // --- Traffic Light Manual Controls ---
+        window.toggleLightPlacement = function() {
+            placingTrafficLight = !placingTrafficLight;
+            const btn = document.getElementById('btn-add-light');
+            if (placingTrafficLight) {
+                btn.classList.add('active-mode');
+                map.getContainer().style.cursor = 'crosshair';
+            } else {
+                btn.classList.remove('active-mode');
+                map.getContainer().style.cursor = '';
+            }
+        }
+
+        window.clearTrafficLights = function() {
+            if(!editingRouteId) return;
+            if(confirm("Clear all traffic lights from this direction?")) {
+                routes[editingRouteId][editingDirection].manualLights = [];
+                applyLightsToSimPath(editingRouteId, editingDirection);
+                renderTrafficLightsUI();
+            }
+        }
+
+        function renderTrafficLightsUI() {
+            currentRouteLightsGroup.clearLayers();
+            if (appMode !== 'EDIT_ROUTE') return;
+            const dirData = routes[editingRouteId][editingDirection];
+            if (!dirData.manualLights) return;
+
+            dirData.manualLights.forEach((light, idx) => {
+                let marker = L.circleMarker([light.lat, light.lng], {
+                    radius: 5, fillColor: 'red', color: 'yellow', weight: 2, fillOpacity: 1
+                }).addTo(currentRouteLightsGroup);
+                marker.bindPopup(`<button onclick="removeLight(${idx})">Remove Light</button>`);
+            });
+        }
+
+        window.removeLight = function(idx) {
+            routes[editingRouteId][editingDirection].manualLights.splice(idx, 1);
+            applyLightsToSimPath(editingRouteId, editingDirection);
+            renderTrafficLightsUI();
+        }
+
+        function applyLightsToSimPath(routeId, direction) {
+            const dirData = routes[routeId][direction];
+            if(!dirData.simPath) return;
+
+            // Reset all lights
+            dirData.simPath.forEach(p => p.isTrafficLight = false);
+
+            if (!dirData.manualLights || dirData.manualLights.length === 0) return;
+            
+            dirData.manualLights.forEach(light => {
+                let minDist = Infinity;
+                let closestIdx = -1;
+                // Snap to closest point on simPath
+                dirData.simPath.forEach((p, idx) => {
+                    let dist = map.distance([light.lat, light.lng], [p.coord[1], p.coord[0]]);
+                    if(dist < minDist) { minDist = dist; closestIdx = idx; }
+                });
+                
+                if(closestIdx !== -1) {
+                    dirData.simPath[closestIdx].isTrafficLight = true;
+                    // Move the visual marker to the snapped path coordinate exactly
+                    light.lat = dirData.simPath[closestIdx].coord[1];
+                    light.lng = dirData.simPath[closestIdx].coord[0];
+                }
+            });
+        }
+
 
         // --- 8. Fast Rendering engine (Loads from JSON instantly) ---
         window.renderRouteLineFromSimPath = function(routeId, direction) {
@@ -633,27 +722,13 @@
             dirData.spawnedToday = dirData.timetable.map(() => false);
         }
 
-        // --- 9. API Fetcher & Real Traffic Light scanner ---
+        // --- 9. API Fetcher ---
         async function drawRouteLine(routeId, direction) {
             const dirData = routes[routeId][direction];
             if (dirData.polylineLayer) { map.removeLayer(dirData.polylineLayer); }
             dirData.simPath = null;
             
             if (dirData.stopIds.length < 2) return; 
-
-            // 1. Fetch REAL traffic lights from Overpass API for this route's area
-            let bounds = L.latLngBounds(dirData.stopIds.map(id => [globalStops[id].lat, globalStops[id].lng]));
-            bounds = bounds.pad(0.05); // Add a small margin
-            let realLights = [];
-            
-            try {
-                document.getElementById('header-text').innerText = "Fetching Map Data...";
-                let overpassQuery = `[out:json];node["highway"="traffic_signals"](${bounds.getSouth()},${bounds.getWest()},${bounds.getNorth()},${bounds.getEast()});out;`;
-                let opRes = await fetch("https://overpass-api.de/api/interpreter", { method: "POST", body: overpassQuery });
-                let opData = await opRes.json();
-                realLights = opData.elements.map(e => ({lat: e.lat, lng: e.lon}));
-                document.getElementById('header-text').innerText = `Editing Route ${routeId}`;
-            } catch(e) { console.warn("Overpass fetch failed", e); }
 
             let simPath = [];
             
@@ -664,7 +739,7 @@
                 simPath.push({ coord: [n1.lng, n1.lat], speed: 11.11, nodeId: n1.id });
 
                 if (n1.mode === 'free' || n2.mode === 'free') {
-                    // Straight Line Fallback for Free Place nodes
+                    // Straight Line Fallback 
                 } else {
                     try {
                         let res = await fetch(`https://router.project-osrm.org/route/v1/driving/${n1.lng},${n1.lat};${n2.lng},${n2.lat}?geometries=geojson&overview=full&steps=true`);
@@ -679,20 +754,7 @@
                                     if (coordIdx === step.geometry.coordinates.length - 1 && step === data.routes[0].legs[0].steps[data.routes[0].legs[0].steps.length-1]) return;
                                     
                                     let cleanCoord = [Math.round(coord[0]*100000)/100000, Math.round(coord[1]*100000)/100000];
-                                    
-                                    // 2. Cross-reference the path coordinate with REAL map traffic lights (15-meter radius)
-                                    let isSignal = false;
-                                    for (let j = 0; j < realLights.length; j++) {
-                                        let light = realLights[j];
-                                        // Quick math check first before heavy distance calculation
-                                        if (Math.abs(cleanCoord[0] - light.lng) < 0.0003 && Math.abs(cleanCoord[1] - light.lat) < 0.0003) {
-                                            if (map.distance([cleanCoord[1], cleanCoord[0]], [light.lat, light.lng]) < 15) {
-                                                isSignal = true; break;
-                                            }
-                                        }
-                                    }
-                                    
-                                    simPath.push({ coord: cleanCoord, speed: simSpeed, nodeId: null, isTrafficLight: isSignal });
+                                    simPath.push({ coord: cleanCoord, speed: simSpeed, nodeId: null, isTrafficLight: false });
                                 });
                             });
                         }
@@ -704,6 +766,9 @@
             simPath.push({ coord: [lastNode.lng, lastNode.lat], speed: 11.11, nodeId: lastNode.id, isEnd: true });
 
             dirData.simPath = simPath;
+            
+            // Apply any manually placed lights to this new fresh path calculation
+            applyLightsToSimPath(routeId, direction);
             renderRouteLineFromSimPath(routeId, direction);
         }
     </script>
