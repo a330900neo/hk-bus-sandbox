@@ -2,152 +2,554 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Optimized HK Pathfinding (100 Chunks)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>HK Bus Route Planner Simulator</title>
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; }
-        #controls { padding: 15px; background-color: #f8f9fa; border-bottom: 1px solid #ccc; }
-        #map { flex-grow: 1; width: 100%; }
-        .result-box { margin-top: 10px; padding: 10px; background: #e9ecef; border-radius: 5px; display: none; }
-        button { padding: 8px 15px; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 4px; }
-        button:hover { background-color: #0056b3; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; overflow: hidden; background: #eee; }
+        #map { height: 100vh; width: 100vw; z-index: 1; }
+
+        .leaflet-tile-pane { transition: filter 2s linear; }
+        .night-mode .leaflet-tile-pane { filter: brightness(0.4) invert(1) hue-rotate(180deg) contrast(1.2); }
+
+        #top-bar { position: absolute; top: 10px; left: 50px; right: 10px; z-index: 1000; display: flex; flex-wrap: wrap; gap: 10px; }
+        .control-group { background: rgba(255,255,255,0.95); padding: 8px 12px; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); display: flex; align-items: center; gap: 10px; }
+        
+        .sys-btn { background: white; border: 1px solid #ccc; padding: 5px 10px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.85em; transition: 0.2s; }
+        .sys-btn:hover { background: #e9ecef; border-color: #adb5bd; }
+
+        .time-display { font-family: monospace; font-size: 1.3em; font-weight: bold; color: #333; background: #e9ecef; padding: 2px 8px; border-radius: 4px; }
+        input[type=range] { width: 100px; }
+
+        #ui-panel { position: absolute; bottom: 0; left: 0; width: 100%; background: white; z-index: 1000; border-radius: 15px 15px 0 0; box-shadow: 0 -5px 15px rgba(0,0,0,0.2); display: flex; flex-direction: column; max-height: 60vh; height: 60vh; transition: transform 0.3s ease-in-out; }
+        .panel-collapsed { transform: translateY(calc(100% - 50px)); }
+        .panel-header { padding: 15px; background: #343a40; color: white; border-radius: 15px 15px 0 0; font-weight: bold; text-align: center; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+        .panel-content { padding: 15px; overflow-y: auto; flex: 1; }
+        
+        .section { background: #f8f9fa; padding: 10px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #dee2e6; }
+        .section-title { font-weight: bold; margin-bottom: 10px; font-size: 0.9em; color: #495057; text-transform: uppercase; }
+
+        .form-group { display: flex; gap: 10px; margin-bottom: 10px; align-items: center; }
+        input[type="text"], input[type="time"], select { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit;}
+        
+        button { padding: 8px 12px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.9em; }
+        button:hover { background: #0056b3; }
+        
+        .active-mode { background: #28a745 !important; border: 2px solid #1e7e34; } 
+        .danger-btn { background: #dc3545 !important; }
+        .tab-btn { flex: 1; background: #6c757d; }
+        .active-tab { background: #17a2b8 !important; }
+
+        .route-group { margin-bottom: 5px; }
+        .group-title { font-weight: bold; background: #e9ecef; padding: 8px 10px; border-radius: 4px; cursor: pointer; font-size: 0.9em; display: flex; justify-content: space-between; }
+        .group-title:hover { background: #dde2e6; }
+        .group-content { margin-top: 5px; }
+        .group-collapsed .group-content { display: none; }
+        .group-collapsed .group-arrow { transform: rotate(-90deg); }
+
+        .route-item { display: flex; justify-content: space-between; align-items: center; padding: 8px; border: 1px solid #ddd; margin-bottom: 5px; border-radius: 4px; background: white;}
+        .stop-list-item, .time-list-item { display: flex; justify-content: space-between; font-size: 0.85em; padding: 5px; border-bottom: 1px solid #eee; }
+        
+        .segment-editor { margin-left: 15px; border-left: 2px solid #adb5bd; padding: 4px 10px; font-size: 0.85em; color: #495057; background: #f8f9fa; display: flex; justify-content: space-between; align-items: center; }
+
+        .stop-popup { text-align: center; }
+        .stop-popup input { width: 120px; margin-bottom: 5px; }
+
+        #edit-settings-modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; }
+        .modal-content { background: white; padding: 20px; border-radius: 8px; width: 80%; max-width: 300px; }
     </style>
 </head>
 <body>
 
-<div id="controls">
-    <h3>Optimized HK Pathfinding (TDAS API)</h3>
-    <p><strong>Instructions:</strong> Click to set Start and End markers, then calculate. Geometry is fetched on demand!</p>
-    <button onclick="calculateRoute()" id="calcBtn">Calculate Route</button>
-    <button onclick="resetMap()" style="background-color: #6c757d;">Reset</button>
+    <div id="top-bar">
+        <div class="control-group">
+            <span class="time-display" id="clock-display">00:00:00</span>
+            <input type="range" id="time-speed" min="1" max="300" value="1" oninput="document.getElementById('speed-display').innerText = this.value + 'x'">
+            <span id="speed-display" style="font-weight: bold; width: 40px;">1x</span>
+        </div>
+        <div class="control-group">
+            <button class="sys-btn" onclick="saveLocal()">💾 Quick Save</button>
+            <button class="sys-btn" onclick="loadLocal()">📂 Quick Load</button>
+            <div style="border-left: 1px solid #ccc; height: 20px;"></div>
+            <button class="sys-btn" onclick="exportData()">📤 Export</button>
+            <button class="sys-btn" onclick="document.getElementById('import-file').click()">📥 Import</button>
+            <input type="file" id="import-file" style="display: none;" accept=".json" onchange="importData(event)">
+        </div>
+    </div>
     
-    <div id="result" class="result-box"></div>
-</div>
+    <div id="map"></div>
 
-<div id="map"></div>
+    <div id="edit-settings-modal">
+        <div class="modal-content">
+            <h3 style="margin-top:0;">Edit Route Settings</h3>
+            <div class="form-group"><input type="text" id="edit-route-group" placeholder="Group (e.g. KMB)"></div>
+            <div class="form-group"><label>Color: </label><input type="color" id="edit-route-color"></div>
+            <div style="display:flex; gap:10px; margin-top:15px;">
+                <button onclick="saveRouteSettings()" style="flex:1; background:#28a745;">Save</button>
+                <button onclick="closeEditSettings()" style="flex:1; background:#6c757d;">Cancel</button>
+            </div>
+        </div>
+    </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-    const map = L.map('map').setView([22.3193, 114.1694], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap'
-    }).addTo(map);
+    <div id="ui-panel">
+        <div class="panel-header" onclick="togglePanel()">
+            <span id="header-text">City Planner: Idle Mode</span>
+            <span id="panel-arrow">▼</span>
+        </div>
+        <div class="panel-content">
+            <div class="section">
+                <div class="section-title">1. Infrastructure</div>
+                <div class="form-group" style="margin-bottom: 5px;">
+                    <select id="stop-snap-mode">
+                        <option value="driving">📍 Snap to Normal Roads</option>
+                        <option value="foot">🚷 Snap to Terminus / Restricted Roads</option>
+                    </select>
+                </div>
+                <button id="btn-build-stops" style="width: 100%;">🏗️ Build Mode: Drop Stops on Map</button>
+            </div>
 
-    let startMarker = null;
-    let endMarker = null;
-    let routeLayers = L.layerGroup().addTo(map);
-    
-    const cachedChunks = {}; 
+            <div class="section" id="route-creation-section">
+                <div class="section-title">2. Route Management</div>
+                <div class="form-group">
+                    <input type="text" id="route-number" placeholder="Route No." style="width: 60px; flex:none;">
+                    <input type="text" id="route-group" placeholder="Group">
+                    <input type="color" id="route-color" value="#ff0000">
+                    <button id="btn-create-route">Add</button>
+                </div>
+                <div id="route-list"></div>
+            </div>
 
-    map.on('click', function(e) {
-        if (!startMarker) {
-            startMarker = L.marker(e.latlng).addTo(map).bindPopup("Start").openPopup();
-        } else if (!endMarker) {
-            endMarker = L.marker(e.latlng).addTo(map).bindPopup("End").openPopup();
+            <div class="section" id="route-editor-section" style="display: none; border-color: #17a2b8;">
+                <div class="section-title" id="editor-title">Editing Route</div>
+                <div class="form-group">
+                    <button class="tab-btn active-tab" id="btn-outbound">Outbound</button>
+                    <button class="tab-btn" id="btn-inbound">Inbound</button>
+                </div>
+                
+                <p style="font-size: 0.8em; color: #666; margin: 5px 0;">Tap stops on map to connect. Change segment modes if pathfinding fails.</p>
+                <div id="current-route-stops" style="max-height: 180px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px;"></div>
+                
+                <div style="background: #e9ecef; padding: 8px; border-radius: 4px; margin-bottom: 10px;">
+                    <div style="font-size: 0.85em; font-weight: bold; margin-bottom: 5px;">Timetable (Start Times)</div>
+                    <div class="form-group" style="margin-bottom: 5px;">
+                        <input type="time" id="new-timetable-time">
+                        <button onclick="addTimetableEntry()">Add Time</button>
+                    </div>
+                    <div id="current-timetable-list" style="max-height: 80px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 4px;"></div>
+                </div>
+                <div class="form-group">
+                    <button class="danger-btn" id="btn-clear-direction">Clear Line</button>
+                    <button id="btn-done-editing" style="flex:1;">Done Editing</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        const map = L.map('map', { zoomControl: false }).setView([22.3193, 114.1694], 14); 
+        L.control.zoom({ position: 'topright' }).addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+        const stopLayerGroup = L.layerGroup().addTo(map);
+
+        map.on('zoomend', () => {
+            if (map.getZoom() < 14 && map.hasLayer(stopLayerGroup)) map.removeLayer(stopLayerGroup);
+            else if (map.getZoom() >= 14 && !map.hasLayer(stopLayerGroup)) map.addLayer(stopLayerGroup);
+        });
+
+        // --- Sim Engine ---
+        let d = new Date();
+        let gameTimeInSeconds = d.getHours()*3600 + d.getMinutes()*60 + d.getSeconds(); 
+        let activeBuses = [];
+        let lastRealTime = performance.now();
+
+        function timeToSeconds(timeStr) {
+            const parts = timeStr.split(':');
+            return parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60;
         }
-    });
 
-    function resetMap() {
-        if (startMarker) map.removeLayer(startMarker);
-        if (endMarker) map.removeLayer(endMarker);
-        routeLayers.clearLayers();
-        startMarker = null;
-        endMarker = null;
-        document.getElementById('result').style.display = 'none';
-    }
+        function createBusIcon(color, routeId) {
+            return L.divIcon({
+                className: 'bus-marker',
+                html: `<div style="background-color: ${color}; color: white; width: 28px; height: 16px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 1px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);">${routeId}</div>`,
+                iconSize: [28, 16],
+                iconAnchor: [14, 8]
+            });
+        }
 
-    // Changed to modulo 100
-    async function fetchRequiredGeometry(rids) {
-        const requiredChunkIds = [...new Set(rids.map(rid => rid % 100))];
-        
-        const fetchPromises = requiredChunkIds.map(async (chunkId) => {
-            if (!cachedChunks[chunkId]) {
-                try {
-                    const res = await fetch(`route_data/chunk_${chunkId}.json`);
-                    if (res.ok) {
-                        cachedChunks[chunkId] = await res.json();
-                    }
-                } catch (e) {
-                    console.error(`Failed to load chunk_${chunkId}.json`, e);
+        class Bus {
+            constructor(routeId, direction, simPath, color) {
+                this.routeId = routeId; this.simPath = simPath; this.pathIdx = 0;
+                this.state = 'DRIVING'; this.stopTimer = 0;
+                this.exactPos = L.latLng(simPath[0].coord[1], simPath[0].coord[0]);
+                this.distanceToNext = map.distance(this.exactPos, L.latLng(simPath[1].coord[1], simPath[1].coord[0]));
+                this.marker = L.marker(this.exactPos, { icon: createBusIcon(color, routeId), zIndexOffset: 1000 }).addTo(map);
+            }
+            advance(dt) {
+                if (this.state === 'FINISHED') return;
+                if (this.state === 'STOPPED') {
+                    this.stopTimer -= dt;
+                    if (this.stopTimer <= 0) { this.state = 'DRIVING'; dt = -this.stopTimer; } else return;
                 }
+
+                while (dt > 0 && this.state === 'DRIVING') {
+                    let nextNode = this.simPath[this.pathIdx + 1];
+                    if (!nextNode) { this.state = 'FINISHED'; map.removeLayer(this.marker); return; }
+
+                    let speed = this.simPath[this.pathIdx].speed; 
+                    let travelDist = speed * dt;
+
+                    if (travelDist >= this.distanceToNext) {
+                        dt -= (this.distanceToNext / speed);
+                        this.pathIdx++;
+                        let currNode = this.simPath[this.pathIdx];
+                        this.exactPos = L.latLng(currNode.coord[1], currNode.coord[0]);
+
+                        if (currNode.isStop && !currNode.isEnd) {
+                            this.state = 'STOPPED';
+                            this.stopTimer = 5 + Math.random() * 15; 
+                            break; 
+                        }
+
+                        if (this.pathIdx < this.simPath.length - 1) {
+                            this.distanceToNext = map.distance(this.exactPos, L.latLng(this.simPath[this.pathIdx+1].coord[1], this.simPath[this.pathIdx+1].coord[0]));
+                        } else this.distanceToNext = 0;
+                    } else {
+                        let p1 = this.exactPos; let p2 = L.latLng(nextNode.coord[1], nextNode.coord[0]);
+                        let ratio = travelDist / this.distanceToNext;
+                        this.exactPos = L.latLng(p1.lat + (p2.lat - p1.lat) * ratio, p1.lng + (p2.lng - p1.lng) * ratio);
+                        this.distanceToNext -= travelDist;
+                        dt = 0;
+                    }
+                }
+                this.marker.setLatLng(this.exactPos);
+            }
+        }
+
+        function gameLoop(now) {
+            let dtReal = (now - lastRealTime) / 1000; lastRealTime = now;
+            if (dtReal > 0.1) dtReal = 0.1; 
+            let dtGame = dtReal * parseFloat(document.getElementById('time-speed').value);
+            gameTimeInSeconds += dtGame;
+            
+            if (gameTimeInSeconds >= 86400) {
+                gameTimeInSeconds -= 86400;
+                for (let id in routes) ['outbound', 'inbound'].forEach(dir => { if (routes[id][dir].spawnedToday) routes[id][dir].spawnedToday.fill(false); });
+            }
+
+            let h = Math.floor(gameTimeInSeconds / 3600).toString().padStart(2, '0');
+            let m = Math.floor((gameTimeInSeconds % 3600) / 60).toString().padStart(2, '0');
+            let s = Math.floor(gameTimeInSeconds % 60).toString().padStart(2, '0');
+            document.getElementById('clock-display').innerText = `${h}:${m}:${s}`;
+
+            if (gameTimeInSeconds >= 19*3600 || gameTimeInSeconds <= 6*3600) document.body.classList.add('night-mode');
+            else document.body.classList.remove('night-mode');
+
+            for (let id in routes) {
+                ['outbound', 'inbound'].forEach(dir => {
+                    let r = routes[id][dir];
+                    if (!r.simPath || !r.spawnedToday) return; 
+                    r.timetable.forEach((timeStr, idx) => {
+                        let t = timeToSeconds(timeStr);
+                        if (gameTimeInSeconds >= t && !r.spawnedToday[idx]) {
+                            r.spawnedToday[idx] = true;
+                            let bus = new Bus(id, dir, r.simPath, routes[id].color);
+                            let catchUp = gameTimeInSeconds - t;
+                            while(catchUp > 0 && bus.state !== 'FINISHED') { let step = Math.min(60, catchUp); bus.advance(step); catchUp -= step; }
+                            if (bus.state !== 'FINISHED') activeBuses.push(bus);
+                        }
+                    });
+                });
+            }
+            activeBuses.forEach(bus => bus.advance(dtGame));
+            activeBuses = activeBuses.filter(b => b.state !== 'FINISHED'); 
+            requestAnimationFrame(gameLoop);
+        }
+        requestAnimationFrame(gameLoop);
+
+        // --- System Logic ---
+        let globalStops = {}; let routes = {}; let appMode = 'IDLE'; 
+        let editingRouteId = null; let editingDirection = 'outbound'; let stopCounter = 1; let settingsTargetRoute = null; let panelIsCollapsed = false;
+
+        function togglePanel() {
+            panelIsCollapsed = !panelIsCollapsed;
+            const p = document.getElementById('ui-panel'); const a = document.getElementById('panel-arrow');
+            if (panelIsCollapsed) { p.classList.add('panel-collapsed'); a.innerText = '▲'; } else { p.classList.remove('panel-collapsed'); a.innerText = '▼'; }
+        }
+
+        // --- Save/Load System ---
+        function getGameStateJSON() {
+            const sd = { stops: {}, routes: {} };
+            for (let id in globalStops) sd.stops[id] = { id: globalStops[id].id, name: globalStops[id].name, lat: globalStops[id].lat, lng: globalStops[id].lng };
+            for (let id in routes) {
+                const r = routes[id];
+                sd.routes[id] = {
+                    group: r.group, color: r.color,
+                    outbound: { stopIds: [...r.outbound.stopIds], routingProfiles: [...(r.outbound.routingProfiles||[])], timetable: [...r.outbound.timetable] },
+                    inbound: { stopIds: [...r.inbound.stopIds], routingProfiles: [...(r.inbound.routingProfiles||[])], timetable: [...r.inbound.timetable] }
+                };
+            }
+            return JSON.stringify(sd);
+        }
+
+        function applyGameStateJSON(jsonStr) {
+            const sd = JSON.parse(jsonStr);
+            stopLayerGroup.clearLayers(); activeBuses.forEach(b => map.removeLayer(b.marker)); activeBuses = [];
+            for (let id in routes) { if(routes[id].outbound.polylineLayer) map.removeLayer(routes[id].outbound.polylineLayer); if(routes[id].inbound.polylineLayer) map.removeLayer(routes[id].inbound.polylineLayer); }
+            globalStops = {}; routes = {};
+            
+            let maxStopNum = 0;
+            for (let id in sd.stops) {
+                const s = sd.stops[id];
+                const marker = L.circleMarker([s.lat, s.lng], { radius: 7, fillColor: "#333", color: "#fff", weight: 2, fillOpacity: 1 }).addTo(stopLayerGroup);
+                globalStops[id] = { id: s.id, name: s.name, lat: s.lat, lng: s.lng, marker: marker };
+                marker.on('click', () => handleStopClick(s.id));
+                bindStopPopup(marker, s.id, s.name);
+                maxStopNum++; 
+            }
+            stopCounter = maxStopNum + 1;
+
+            for (let id in sd.routes) {
+                const r = sd.routes[id];
+                routes[id] = {
+                    group: r.group, color: r.color,
+                    outbound: { stopIds: r.outbound.stopIds, routingProfiles: r.outbound.routingProfiles || [], timetable: r.outbound.timetable || [], polylineLayer: null },
+                    inbound: { stopIds: r.inbound.stopIds, routingProfiles: r.inbound.routingProfiles || [], timetable: r.inbound.timetable || [], polylineLayer: null }
+                };
+                drawRouteLine(id, 'outbound'); drawRouteLine(id, 'inbound');
+            }
+            setMode('IDLE'); updateRouteListUI();
+        }
+
+        window.saveLocal = () => { localStorage.setItem('hkbus_save', getGameStateJSON()); alert("Saved!"); };
+        window.loadLocal = () => { const s = localStorage.getItem('hkbus_save'); if(s) applyGameStateJSON(s); else alert("No save found!"); };
+        window.exportData = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([getGameStateJSON()], { type: "application/json" })); a.download = `hk_bus_save.json`; a.click(); };
+        window.importData = (e) => { const reader = new FileReader(); reader.onload = (ev) => { applyGameStateJSON(ev.target.result); e.target.value = ''; }; reader.readAsText(e.target.files[0]); };
+
+        // --- Core Editor Modes ---
+        function setMode(mode) {
+            appMode = mode; map.getContainer().style.cursor = '';
+            document.getElementById('btn-build-stops').classList.remove('active-mode'); document.getElementById('btn-build-stops').innerText = "🏗️ Build Mode: Drop Stops on Map";
+
+            if (mode === 'IDLE') {
+                document.getElementById('header-text').innerText = "City Planner: Idle";
+                document.getElementById('route-creation-section').style.display = 'block'; document.getElementById('route-editor-section').style.display = 'none';
+            } else if (mode === 'BUILD_STOPS') {
+                document.getElementById('header-text').innerText = "City Planner: Building Stops";
+                document.getElementById('btn-build-stops').classList.add('active-mode'); document.getElementById('btn-build-stops').innerText = "🛑 Stop Building (Tap Map)";
+                map.getContainer().style.cursor = 'crosshair'; if (panelIsCollapsed) togglePanel(); 
+            } else if (mode === 'EDIT_ROUTE') {
+                document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
+                document.getElementById('route-creation-section').style.display = 'none'; document.getElementById('route-editor-section').style.display = 'block';
+                updateRouteEditorUI(); if (panelIsCollapsed) togglePanel();
+            }
+        }
+
+        document.getElementById('btn-build-stops').addEventListener('click', () => setMode(appMode === 'BUILD_STOPS' ? 'IDLE' : 'BUILD_STOPS'));
+        document.getElementById('btn-done-editing').addEventListener('click', () => setMode('IDLE'));
+
+        map.on('click', async (e) => {
+            if (appMode !== 'BUILD_STOPS') return;
+            // Retrieve chosen snapping profile (driving vs foot)
+            const snapMode = document.getElementById('stop-snap-mode').value;
+            const res = await fetch(`https://router.project-osrm.org/nearest/v1/${snapMode}/${e.latlng.lng},${e.latlng.lat}`);
+            const data = await res.json();
+            if (data.code === 'Ok') {
+                const stopId = 'stop_' + Date.now(); const stopName = `Stop ${stopCounter++}`;
+                const marker = L.circleMarker([data.waypoints[0].location[1], data.waypoints[0].location[0]], { radius: 7, fillColor: "#333", color: "#fff", weight: 2, fillOpacity: 1 }).addTo(stopLayerGroup);
+                globalStops[stopId] = { id: stopId, name: stopName, lat: marker.getLatLng().lat, lng: marker.getLatLng().lng, marker: marker };
+                marker.on('click', () => handleStopClick(stopId)); bindStopPopup(marker, stopId, stopName);
             }
         });
 
-        await Promise.all(fetchPromises);
-    }
+        function handleStopClick(stopId) {
+            if (appMode === 'EDIT_ROUTE') {
+                const dirData = routes[editingRouteId][editingDirection];
+                if (dirData.stopIds[dirData.stopIds.length - 1] === stopId) return;
+                
+                dirData.stopIds.push(stopId);
+                if (!dirData.routingProfiles) dirData.routingProfiles = [];
+                if (dirData.stopIds.length > 1) dirData.routingProfiles.push('driving'); // Default new segment to driving
 
-    async function calculateRoute() {
-        if (!startMarker || !endMarker) return alert("Select Start and End locations first.");
+                updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection);
+            } else { globalStops[stopId].marker.openPopup(); }
+        }
 
-        const payload = {
-            start: { lat: startMarker.getLatLng().lat, long: startMarker.getLatLng().lng },
-            end: { lat: endMarker.getLatLng().lat, long: endMarker.getLatLng().lng },
-            departIn: 0, lang: "en", type: "ST"
-        };
+        function bindStopPopup(marker, stopId, currentName) { marker.bindPopup(`<div class="stop-popup"><strong>Manage Stop</strong><br><input type="text" id="input-${stopId}" value="${currentName}"><br><button onclick="renameGlobalStop('${stopId}')">Save</button> <button class="danger-btn" onclick="deleteGlobalStop('${stopId}')">Delete</button></div>`); }
+        window.renameGlobalStop = function(stopId) { globalStops[stopId].name = document.getElementById(`input-${stopId}`).value; bindStopPopup(globalStops[stopId].marker, stopId, globalStops[stopId].name); globalStops[stopId].marker.closePopup(); if (appMode === 'EDIT_ROUTE') updateRouteEditorUI(); };
+        window.deleteGlobalStop = function(stopId) { stopLayerGroup.removeLayer(globalStops[stopId].marker); delete globalStops[stopId]; for (let routeId in routes) { ['outbound', 'inbound'].forEach(dir => { let idx = routes[routeId][dir].stopIds.indexOf(stopId); if(idx > -1) window.removeStopFromRouteInner(routeId, dir, idx); }); } if (appMode === 'EDIT_ROUTE') updateRouteEditorUI(); };
 
-        const resultDiv = document.getElementById('result');
-        resultDiv.style.display = 'block';
-        resultDiv.innerHTML = "<i>Calculating route and fetching geometry...</i>";
-        routeLayers.clearLayers();
+        // --- Route & Groups UI ---
+        document.getElementById('btn-create-route').addEventListener('click', () => {
+            const routeNum = document.getElementById('route-number').value.trim();
+            if (!routeNum || routes[routeNum]) return;
+            routes[routeNum] = {
+                group: document.getElementById('route-group').value.trim() || "Uncategorized", color: document.getElementById('route-color').value,
+                outbound: { stopIds: [], routingProfiles: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [] },
+                inbound: { stopIds: [], routingProfiles: [], polylineLayer: null, timetable: [], simPath: null, spawnedToday: [] }
+            };
+            document.getElementById('route-number').value = ''; updateRouteListUI();
+        });
 
-        try {
-            const response = await fetch("https://tdas-api.hkemobility.gov.hk/tdas/api/route", {
-                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+        window.toggleGroup = function(el) { el.parentElement.classList.toggle('group-collapsed'); };
+
+        function updateRouteListUI() {
+            const list = document.getElementById('route-list'); list.innerHTML = '';
+            const grouped = {};
+            for (let [id, data] of Object.entries(routes)) { if (!grouped[data.group]) grouped[data.group] = []; grouped[data.group].push({ id, ...data }); }
+            for (let group in grouped) {
+                const groupDiv = document.createElement('div'); groupDiv.className = 'route-group';
+                groupDiv.innerHTML = `<div class="group-title" onclick="toggleGroup(this)"><span>${group}</span><span class="group-arrow">▼</span></div><div class="group-content"></div>`;
+                grouped[group].forEach(r => { groupDiv.querySelector('.group-content').innerHTML += `<div class="route-item"><div style="flex:1;"><span style="color:${r.color};">⬤</span> <strong>${r.id}</strong></div><button onclick="openEditSettings('${r.id}')" style="background:#ffc107; color:black; margin-right:5px; padding:6px;">⚙️</button><button onclick="startEditingRoute('${r.id}')">Edit</button></div>`; });
+                list.appendChild(groupDiv);
+            }
+        }
+
+        window.openEditSettings = function(id) { settingsTargetRoute = id; document.getElementById('edit-route-group').value = routes[id].group; document.getElementById('edit-route-color').value = routes[id].color; document.getElementById('edit-settings-modal').style.display = 'flex'; };
+        window.closeEditSettings = function() { document.getElementById('edit-settings-modal').style.display = 'none'; };
+        window.saveRouteSettings = function() { routes[settingsTargetRoute].group = document.getElementById('edit-route-group').value.trim() || "Uncategorized"; routes[settingsTargetRoute].color = document.getElementById('edit-route-color').value; drawRouteLine(settingsTargetRoute, 'outbound'); drawRouteLine(settingsTargetRoute, 'inbound'); updateRouteListUI(); closeEditSettings(); };
+
+        // --- Route Editor & Advanced Segments ---
+        window.startEditingRoute = function(id) { editingRouteId = id; setMode('EDIT_ROUTE'); };
+
+        document.getElementById('btn-outbound').addEventListener('click', (e) => { editingDirection = 'outbound'; e.target.classList.add('active-tab'); document.getElementById('btn-inbound').classList.remove('active-tab'); updateRouteEditorUI(); });
+        document.getElementById('btn-inbound').addEventListener('click', (e) => { editingDirection = 'inbound'; e.target.classList.add('active-tab'); document.getElementById('btn-outbound').classList.remove('active-tab'); updateRouteEditorUI(); });
+
+        function updateRouteEditorUI() {
+            if (!editingRouteId) return;
+            const dirData = routes[editingRouteId][editingDirection];
+            const stopDiv = document.getElementById('current-route-stops');
+            stopDiv.innerHTML = dirData.stopIds.length === 0 ? '<div style="padding:10px; color:#999; text-align:center;">No stops connected.</div>' : '';
+            
+            dirData.stopIds.forEach((id, idx) => {
+                if(globalStops[id]) {
+                    stopDiv.innerHTML += `<div class="stop-list-item"><span>${idx+1}. ${globalStops[id].name}</span><button style="padding:2px 5px; background:#dc3545;" onclick="removeStopFromRouteUI(${idx})">X</button></div>`;
+                    
+                    // Render the segment controller if it's not the last stop
+                    if (idx < dirData.stopIds.length - 1) {
+                        let profile = dirData.routingProfiles[idx] || 'driving';
+                        stopDiv.innerHTML += `
+                        <div class="segment-editor">
+                            ↳ Link Mode:
+                            <select onchange="changeSegmentProfile(${idx}, this.value)" style="width: auto; padding: 2px; font-size: 0.9em; height: 25px;">
+                                <option value="driving" ${profile==='driving'?'selected':''}>🚗 Normal Driving</option>
+                                <option value="foot" ${profile==='foot'?'selected':''}>🚶 Terminus / Path</option>
+                                <option value="straight" ${profile==='straight'?'selected':''}>📏 Straight Line</option>
+                            </select>
+                        </div>`;
+                    }
+                }
             });
 
-            if (!response.ok) throw new Error("TDAS API Error");
-            const data = await response.json();
+            const timeDiv = document.getElementById('current-timetable-list');
+            timeDiv.innerHTML = dirData.timetable.length === 0 ? '<div style="padding:5px; color:#999; text-align:center; font-size:0.85em;">No times set.</div>' : '';
+            dirData.timetable.forEach((time, idx) => { timeDiv.innerHTML += `<div class="time-list-item"><span>🕒 ${time}</span><button style="padding:2px 5px; background:#dc3545;" onclick="removeTimetableEntry(${idx})">X</button></div>`; });
+        }
 
-            resultDiv.innerHTML = `
-                <strong>ETA:</strong> ${data.eta} | 
-                <strong>Distance:</strong> ${data.distU} | 
-                <strong>Speed:</strong> ${data.jSpeed}
-            `;
+        window.changeSegmentProfile = function(index, mode) {
+            routes[editingRouteId][editingDirection].routingProfiles[index] = mode;
+            drawRouteLine(editingRouteId, editingDirection);
+        };
 
-            if (data.route && data.route.length > 0) {
-                let allRids = [];
-                data.route[0].segment.forEach(seg => {
-                    if (seg.rid) allRids.push(...seg.rid);
-                });
+        window.removeStopFromRouteInner = function(routeId, dir, index) {
+            const dirData = routes[routeId][dir];
+            dirData.stopIds.splice(index, 1);
+            if (dirData.routingProfiles && dirData.routingProfiles.length > 0) {
+                if (index === 0) dirData.routingProfiles.shift();
+                else dirData.routingProfiles.splice(index - 1, 1);
+            }
+            drawRouteLine(routeId, dir);
+        }
 
-                await fetchRequiredGeometry(allRids);
+        window.removeStopFromRouteUI = function(index) { 
+            removeStopFromRouteInner(editingRouteId, editingDirection, index); 
+            updateRouteEditorUI(); 
+        };
+        
+        document.getElementById('btn-clear-direction').addEventListener('click', () => { if(confirm("Clear stops?")) { routes[editingRouteId][editingDirection].stopIds = []; routes[editingRouteId][editingDirection].routingProfiles = []; updateRouteEditorUI(); drawRouteLine(editingRouteId, editingDirection); }});
 
-                let validCoordinatesFound = false;
+        window.addTimetableEntry = function() {
+            const timeInput = document.getElementById('new-timetable-time').value;
+            if(!timeInput) return;
+            const tArray = routes[editingRouteId][editingDirection].timetable;
+            if(!tArray.includes(timeInput)) { tArray.push(timeInput); tArray.sort(); }
+            routes[editingRouteId][editingDirection].spawnedToday = tArray.map(() => false); 
+            document.getElementById('new-timetable-time').value = ''; updateRouteEditorUI();
+        }
+        window.removeTimetableEntry = function(index) { routes[editingRouteId][editingDirection].timetable.splice(index, 1); routes[editingRouteId][editingDirection].spawnedToday.splice(index, 1); updateRouteEditorUI(); }
 
-                allRids.forEach(rid => {
-                    // Changed to modulo 100
-                    const chunkId = rid % 100;
-                    if (cachedChunks[chunkId] && cachedChunks[chunkId][rid]) {
-                        validCoordinatesFound = true;
-                        const coordinates = cachedChunks[chunkId][rid];
-                        
-                        const geoJsonFeature = {
-                            "type": "Feature",
-                            "geometry": { "type": "LineString", "coordinates": coordinates }
-                        };
+        // --- Per-Segment Pathfinding Engine & Speed Math ---
+        async function drawRouteLine(routeId, direction) {
+            const dirData = routes[routeId][direction];
+            if (dirData.polylineLayer) { map.removeLayer(dirData.polylineLayer); dirData.polylineLayer = null; }
+            dirData.simPath = null;
+            
+            if (!dirData.routingProfiles) dirData.routingProfiles = Array(Math.max(0, dirData.stopIds.length - 1)).fill('driving');
+            if (dirData.stopIds.length < 2) return; 
 
-                        L.geoJSON(geoJsonFeature, {
-                            style: { color: '#007bff', weight: 5, opacity: 0.8 }
-                        }).addTo(routeLayers);
-                    }
-                });
+            let fullSimPath = [];
+            let segmentLayers = [];
+            const isOutbound = direction === 'outbound';
+            const lineStyle = { color: routes[routeId].color, weight: isOutbound ? 5 : 4, opacity: isOutbound ? 0.9 : 0.6, dashArray: isOutbound ? null : '5, 10' };
 
-                if (validCoordinatesFound) {
-                    setTimeout(() => {
-                        map.fitBounds(L.featureGroup(routeLayers.getLayers()).getBounds(), { padding: [30, 30] });
-                    }, 100);
+            // Process route sequentially per segment to respect user overrides
+            for (let i = 0; i < dirData.stopIds.length - 1; i++) {
+                let s1 = globalStops[dirData.stopIds[i]];
+                let s2 = globalStops[dirData.stopIds[i+1]];
+                if(!s1 || !s2) continue;
+                
+                let profile = dirData.routingProfiles[i] || 'driving';
+
+                if (profile === 'straight') {
+                    segmentLayers.push(L.polyline([[s1.lat, s1.lng], [s2.lat, s2.lng]], lineStyle));
+                    fullSimPath.push({ coord: [s1.lng, s1.lat], speed: 8.33, isStop: false }); // 30km/h
+                    fullSimPath.push({ coord: [s2.lng, s2.lat], speed: 8.33, isStop: true }); 
                 } else {
-                    resultDiv.innerHTML += `<br><span style="color:red;">Geometry not found for these roads.</span>`;
+                    const url = `https://router.project-osrm.org/route/v1/${profile}/${s1.lng},${s1.lat};${s2.lng},${s2.lat}?geometries=geojson&overview=full&steps=true`;
+                    try {
+                        const response = await fetch(url);
+                        const data = await response.json();
+                        if (data.code === 'Ok') {
+                            segmentLayers.push(L.geoJSON(data.routes[0].geometry, { style: lineStyle, interactive: false }));
+
+                            data.routes[0].legs[0].steps.forEach((step) => {
+                                // STRICT SPEED CLAMPING PHYSICS
+                                let rawSpeedMs = step.duration > 0 ? (step.distance / step.duration) : 13.88;
+                                let rawKmh = rawSpeedMs * 3.6;
+                                
+                                let finalKmh = 50; // Standard City Speed
+                                if (rawKmh >= 55) finalKmh = 70; // Fast Highways / Tunnels
+                                else if (rawKmh <= 30) finalKmh = 30; // Small Turns / Traffic
+                                
+                                let simSpeed = finalKmh / 3.6; // Convert back to m/s
+                                
+                                step.geometry.coordinates.forEach((coord, idx, arr) => {
+                                    if (idx < arr.length - 1) fullSimPath.push({ coord: coord, speed: simSpeed, isStop: false });
+                                });
+                            });
+                            // Push the destination of this segment as a Stop
+                            let lastStep = data.routes[0].legs[0].steps.slice(-1)[0];
+                            let lastCoord = lastStep.geometry.coordinates.slice(-1)[0];
+                            fullSimPath.push({ coord: lastCoord, speed: 13.88, isStop: true });
+                        }
+                    } catch (error) { console.error("Segment Routing error:", error); }
                 }
             }
 
-        } catch (error) {
-            console.error(error);
-            resultDiv.innerHTML = `<span style="color:red;">Failed to get route data. Check console.</span>`;
+            if (segmentLayers.length > 0) {
+                dirData.polylineLayer = L.featureGroup(segmentLayers).addTo(map);
+            }
+            
+            if (fullSimPath.length > 0) {
+                fullSimPath[fullSimPath.length - 1].isEnd = true; // Mark final destination to despawn
+            }
+            
+            dirData.simPath = fullSimPath;
+            dirData.spawnedToday = dirData.timetable.map(() => false);
         }
-    }
-</script>
-
+    </script>
 </body>
 </html>
