@@ -14,6 +14,13 @@
         .leaflet-tile-pane { transition: filter 2s linear; }
         .night-mode .leaflet-tile-pane { filter: brightness(0.4) invert(1) hue-rotate(180deg) contrast(1.2); }
 
+        /* Dynamic bus scaling based on zoom level CSS variable */
+        .bus-marker-inner {
+            color: white; width: 26px; height: 16px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 1px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            transform: scale(var(--bus-scale, 1));
+            transition: transform 0.2s ease-out;
+        }
+
         #top-bar { position: absolute; top: 10px; left: 50px; right: 10px; z-index: 1000; display: flex; flex-wrap: wrap; gap: 10px; }
         .control-group { background: rgba(255,255,255,0.95); padding: 8px 12px; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); display: flex; align-items: center; gap: 10px; }
         
@@ -57,7 +64,7 @@
         .stop-popup input { width: 140px; margin-bottom: 5px; }
 
         #edit-settings-modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; }
-        .modal-content { background: white; padding: 20px; border-radius: 8px; width: 80%; max-width: 300px; }
+        .modal-content { background: white; padding: 20px; border-radius: 8px; width: 80%; max-width: 300px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
     </style>
 </head>
 <body>
@@ -82,13 +89,16 @@
 
     <div id="edit-settings-modal">
         <div class="modal-content">
-            <h3 style="margin-top:0;">Edit Route Settings</h3>
-            <div class="form-group"><input type="text" id="edit-route-group" placeholder="Group (e.g. KMB)"></div>
-            <div class="form-group"><label>Color: </label><input type="color" id="edit-route-color"></div>
+            <h3 style="margin-top:0;">Route Settings</h3>
+            <div class="form-group"><label style="width: 50px;">ID: </label><input type="text" id="edit-route-id"></div>
+            <div class="form-group"><label style="width: 50px;">Group: </label><input type="text" id="edit-route-group" placeholder="e.g. KMB"></div>
+            <div class="form-group"><label style="width: 50px;">Color: </label><input type="color" id="edit-route-color"></div>
+            
             <div style="display:flex; gap:10px; margin-top:15px;">
                 <button onclick="saveRouteSettings()" style="flex:1; background:#28a745;">Save</button>
                 <button onclick="closeEditSettings()" style="flex:1; background:#6c757d;">Cancel</button>
             </div>
+            <button class="danger-btn" onclick="deleteRoute()" style="width:100%; margin-top:15px;">🗑️ Delete Route</button>
         </div>
     </div>
 
@@ -123,7 +133,12 @@
             </div>
 
             <div class="section" id="route-editor-section" style="display: none; border-color: #17a2b8;">
-                <div class="section-title" id="editor-title">Editing Route</div>
+                <div class="section-title" id="editor-title" style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>Editing Route</span>
+                    <label style="font-size: 0.8em; font-weight: normal; text-transform: none; display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                        <input type="checkbox" id="toggle-hide-routes" onchange="toggleHideOtherRoutes()"> 👁️ Hide others
+                    </label>
+                </div>
                 
                 <div class="form-group">
                     <button class="tab-btn active-mode" id="btn-outbound">Outbound</button>
@@ -173,10 +188,19 @@
         const stopLayerGroup = L.layerGroup().addTo(map);
         const currentRouteLightsGroup = L.layerGroup().addTo(map);
 
+        function updateZoomScale() {
+            let z = map.getZoom();
+            // Scale bus markers down smoothly as we zoom out
+            let scale = z >= 14 ? 1 : (z >= 13 ? 0.85 : (z >= 12 ? 0.75 : (z >= 11 ? 0.6 : 0.5)));
+            document.getElementById('map').style.setProperty('--bus-scale', scale);
+        }
+
         map.on('zoomend', () => {
             if (map.getZoom() < 14 && map.hasLayer(stopLayerGroup)) map.removeLayer(stopLayerGroup);
             else if (map.getZoom() >= 14 && !map.hasLayer(stopLayerGroup)) map.addLayer(stopLayerGroup);
+            updateZoomScale();
         });
+        updateZoomScale(); // Run once on startup
 
         // --- 2. Simulation Variables ---
         let d = new Date();
@@ -193,7 +217,7 @@
         function createBusIcon(color, routeId) {
             return L.divIcon({
                 className: 'bus-marker',
-                html: `<div style="background-color: ${color}; color: white; width: 26px; height: 16px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 1px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);">${routeId}</div>`,
+                html: `<div class="bus-marker-inner" style="background-color: ${color};">${routeId}</div>`,
                 iconSize: [26, 16],
                 iconAnchor: [13, 8]
             });
@@ -202,6 +226,7 @@
         class Bus {
             constructor(routeId, direction, simPath, color) {
                 this.routeId = routeId;
+                this.direction = direction;
                 this.simPath = simPath;
                 this.pathIdx = 0;
                 this.state = 'DRIVING'; 
@@ -315,7 +340,14 @@
                                 let step = Math.min(60, catchUp);
                                 bus.advance(step); catchUp -= step;
                             }
-                            if (bus.state !== 'FINISHED') activeBuses.push(bus);
+                            if (bus.state !== 'FINISHED') {
+                                activeBuses.push(bus);
+                                
+                                // Ensure new buses respect the "Hide others" toggle
+                                let isEditing = (appMode === 'EDIT_ROUTE' && id === editingRouteId);
+                                let shouldShow = !hideOtherRoutes || isEditing || appMode !== 'EDIT_ROUTE';
+                                if (!shouldShow) map.removeLayer(bus.marker);
+                            }
                         }
                     });
                 });
@@ -338,6 +370,7 @@
         let settingsTargetRoute = null;
         let panelIsCollapsed = false;
         let placingTrafficLight = false;
+        let hideOtherRoutes = false; // New State
 
         function togglePanel() {
             panelIsCollapsed = !panelIsCollapsed;
@@ -346,6 +379,34 @@
             if (panelIsCollapsed) { panel.classList.add('panel-collapsed'); arrow.innerText = '▲'; } 
             else { panel.classList.remove('panel-collapsed'); arrow.innerText = '▼'; }
         }
+
+        window.toggleHideOtherRoutes = function() {
+            hideOtherRoutes = document.getElementById('toggle-hide-routes').checked;
+            applyRouteVisibility();
+        };
+
+        window.applyRouteVisibility = function() {
+            for (let id in routes) {
+                let isEditing = (appMode === 'EDIT_ROUTE' && id === editingRouteId);
+                let shouldShow = !hideOtherRoutes || isEditing || appMode !== 'EDIT_ROUTE';
+
+                ['outbound', 'inbound'].forEach(dir => {
+                    let layer = routes[id][dir].polylineLayer;
+                    if(layer) {
+                        if(shouldShow && !map.hasLayer(layer)) map.addLayer(layer);
+                        else if(!shouldShow && map.hasLayer(layer)) map.removeLayer(layer);
+                    }
+                });
+            }
+
+            activeBuses.forEach(b => {
+                let isEditing = (appMode === 'EDIT_ROUTE' && b.routeId === editingRouteId);
+                let shouldShow = !hideOtherRoutes || isEditing || appMode !== 'EDIT_ROUTE';
+                
+                if(shouldShow && !map.hasLayer(b.marker)) map.addLayer(b.marker);
+                else if(!shouldShow && map.hasLayer(b.marker)) map.removeLayer(b.marker);
+            });
+        };
 
         // --- 5. Save/Load ---
         function getGameStateJSON() {
@@ -458,6 +519,8 @@
                 document.getElementById('route-creation-section').style.display = 'block';
                 document.getElementById('route-editor-section').style.display = 'none';
             }
+
+            applyRouteVisibility(); // Apply visibility mask whenever mode switches
         }
 
         document.getElementById('btn-done-editing').addEventListener('click', () => {
@@ -534,16 +597,13 @@
             if (appMode === 'EDIT_ROUTE') updateRouteEditorUI();
         };
 
-        // FIXED: Only recalculate routes that actually contained the deleted node
         window.deleteNode = function(nodeId) {
             stopLayerGroup.removeLayer(globalStops[nodeId].marker); delete globalStops[nodeId];
             for (let routeId in routes) {
                 ['outbound', 'inbound'].forEach(dir => {
                     let oldLen = routes[routeId][dir].stopIds.length;
                     routes[routeId][dir].stopIds = routes[routeId][dir].stopIds.filter(id => id !== nodeId);
-                    if(oldLen !== routes[routeId][dir].stopIds.length) {
-                        drawRouteLine(routeId, dir); 
-                    }
+                    if(oldLen !== routes[routeId][dir].stopIds.length) drawRouteLine(routeId, dir); 
                 });
             }
             if (appMode === 'EDIT_ROUTE') updateRouteEditorUI();
@@ -583,20 +643,87 @@
 
         window.openEditSettings = function(id) {
             settingsTargetRoute = id;
+            document.getElementById('edit-route-id').value = id; // New Edit ID feature
             document.getElementById('edit-route-group').value = routes[id].group;
             document.getElementById('edit-route-color').value = routes[id].color;
             document.getElementById('edit-settings-modal').style.display = 'flex';
         };
+        
         window.closeEditSettings = function() { document.getElementById('edit-settings-modal').style.display = 'none'; };
+        
         window.saveRouteSettings = function() {
-            routes[settingsTargetRoute].group = document.getElementById('edit-route-group').value.trim() || "Uncategorized";
-            routes[settingsTargetRoute].color = document.getElementById('edit-route-color').value;
+            let newId = document.getElementById('edit-route-id').value.trim();
+            if(!newId) return;
+
+            let newGroup = document.getElementById('edit-route-group').value.trim() || "Uncategorized";
+            let newColor = document.getElementById('edit-route-color').value;
+
+            // Handle ID rename
+            if(newId !== settingsTargetRoute) {
+                if(routes[newId]) { alert("Route ID already exists!"); return; }
+                
+                // Copy dictionary reference to new key
+                routes[newId] = routes[settingsTargetRoute];
+                delete routes[settingsTargetRoute];
+
+                // If currently editing this route, update the editor pointer
+                if(editingRouteId === settingsTargetRoute) {
+                    editingRouteId = newId;
+                    document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
+                }
+
+                // Update active buses memory and popup
+                activeBuses.forEach(b => {
+                    if(b.routeId === settingsTargetRoute) {
+                        b.routeId = newId;
+                        b.marker.getPopup().setContent(`<b>Route ${newId}</b> (${b.direction})`);
+                    }
+                });
+
+                settingsTargetRoute = newId;
+            }
+
+            routes[settingsTargetRoute].group = newGroup;
+            routes[settingsTargetRoute].color = newColor;
+            
+            // Re-render buses so color updates dynamically
+            activeBuses.forEach(b => {
+                if(b.routeId === settingsTargetRoute) b.marker.setIcon(createBusIcon(newColor, settingsTargetRoute));
+            });
+
+            // Re-render polylines with new color
             renderRouteLineFromSimPath(settingsTargetRoute, 'outbound'); 
             renderRouteLineFromSimPath(settingsTargetRoute, 'inbound');
-            updateRouteListUI(); closeEditSettings();
+            
+            updateRouteListUI(); 
+            closeEditSettings();
+            applyRouteVisibility();
         };
 
-        // FIXED: Switching between routes smoothly without accidental toggling
+        window.deleteRoute = function() {
+            if(confirm(`Are you absolutely sure you want to delete route ${settingsTargetRoute}?`)) {
+                // Wipe map lines
+                ['outbound', 'inbound'].forEach(dir => {
+                    if(routes[settingsTargetRoute][dir].polylineLayer) map.removeLayer(routes[settingsTargetRoute][dir].polylineLayer);
+                });
+                
+                // Wipe buses
+                activeBuses = activeBuses.filter(b => {
+                    if(b.routeId === settingsTargetRoute) { map.removeLayer(b.marker); return false; }
+                    return true;
+                });
+                
+                // Wipe memory
+                delete routes[settingsTargetRoute];
+                
+                // Quit editor if deleting current route
+                if(editingRouteId === settingsTargetRoute) setMode('IDLE');
+                
+                updateRouteListUI();
+                closeEditSettings();
+            }
+        };
+
         window.startEditingRoute = function(id) { 
             editingRouteId = id; 
             if(appMode !== 'EDIT_ROUTE') {
@@ -605,6 +732,7 @@
                 document.getElementById('header-text').innerText = `Editing Route ${editingRouteId}`;
                 updateRouteEditorUI();
                 renderTrafficLightsUI();
+                applyRouteVisibility(); // Re-mask lines based on toggle
             }
         };
 
@@ -739,6 +867,7 @@
             
             dirData.polylineLayer = polylines;
             dirData.spawnedToday = dirData.timetable.map(() => false);
+            applyRouteVisibility(); // Re-apply layer mask
         }
 
         // --- 9. API Fetcher with Caching ---
@@ -772,7 +901,6 @@
                     // Straight Line Fallback 
                 } else {
                     if (!forceReroute && osrmCache[cacheKey]) {
-                        // FIXED: Deep clone the cache so routes don't share identical objects in memory
                         simPath.push(...JSON.parse(JSON.stringify(osrmCache[cacheKey])));
                     } else {
                         try {
@@ -797,7 +925,6 @@
                             }
                             
                             osrmCache[cacheKey] = segmentPath; 
-                            // Deep clone before pushing so memory is safe
                             simPath.push(...JSON.parse(JSON.stringify(segmentPath)));
                             
                         } catch (err) { console.error("OSRM segment failed", err); }
